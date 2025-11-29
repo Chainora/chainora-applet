@@ -1,32 +1,4 @@
-# JavaCard Template project with Gradle
-
-[![Build Status](https://travis-ci.org/ph4r05/javacard-gradle-template.svg?branch=master)](https://travis-ci.org/ph4r05/javacard-gradle-template)
-
-This is simple JavaCard project template using Gradle build system.
-
-You can develop your JavaCard applets and build cap files with the Gradle!
-Moreover the project template enables you to test the applet with [JCardSim] or on the physical cards.
-
-Gradle project contains one module:
-
-- `applet`: contains the javacard applet. Can be used both for testing and building CAP
-
-Features:
-
-- Gradle build (CLI / IntelliJ Idea)
-- Build CAP for applets
-- Test applet code in [JCardSim] / physical cards
-- IntelliJ Idea: Coverage
-- Travis support
-
-### Template
-
-The template contains simple Hello World applet generating random bytes on any APDU message received.
-There is also implemented very simple test that sends static APDU command to this applet - in JCardSim.
-
-The Gradle project can be opened and run in the IntelliJ Idea.
-
-Running in IntelliJ Idea gives you a nice benefit: _Coverage_!
+# Chainora Applet
 
 ## Building cap
 
@@ -83,7 +55,7 @@ As simple as:
 ./gradlew run
 ```
 
-By default the run task will run the main Java application implemented at: `main/java/main/Run.java`, using the `HelloWorldApplet` applet.
+By default the run task will run the main Java application implemented at: `main/java/main/Run.java`, using the `ChainoraWallet` applet.
 
 ## Running tests
 
@@ -112,8 +84,6 @@ This project uses mainly:
 - https://github.com/martinpaljak/oracle_javacard_sdks
 - https://github.com/licel/jcardsim
 - Petr Svenda scripts
-
-Kudos for a great work!
 
 ### JavaCard support
 
@@ -186,13 +156,6 @@ gradle-javacard-plugin v1.7.4 should fix this error.
 
 If you still experience this in IntelliJ Idea try: open project structure settings -> modules -> applet_test and move JCardSim to the top so it appears first on the classpath.
 This has to be done with each project reload from the Gradle.
-
-## Roadmap
-
-TODOs for this project:
-
-- Polish Gradle build scripts
-- Add basic libraries as maven dependency.
 
 ## Contributions
 
