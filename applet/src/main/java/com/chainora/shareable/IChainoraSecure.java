@@ -1,8 +1,8 @@
-package com.chainora.applet;
+package com.chainora.shareable;
 
 import javacard.framework.Shareable;
 
-public interface IChainoraStorage extends Shareable {
+public interface IChainoraSecure extends Shareable {
 
     // === PIN Methods ===
     void initPin(byte[] pinBuffer, short pinOffset, byte pinLength);
@@ -15,5 +15,6 @@ public interface IChainoraStorage extends Shareable {
 
     void resetPin();
 
-    // === Blockchain Methods ===
+    // === Very Secret Methods ===
+    byte[] getVerySecretKey();
 }

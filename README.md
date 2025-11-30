@@ -38,7 +38,7 @@ Typical output:
 ## Installation on a (physical) card
 
 ```bash
-./gradlew installJavaCardMultiple
+./gradlew installChainoraApplet
 ```
 
 Or inspect already installed applets:

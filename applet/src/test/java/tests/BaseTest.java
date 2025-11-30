@@ -9,7 +9,7 @@ import javax.smartcardio.CardException;
 import javax.smartcardio.CommandAPDU;
 import javax.smartcardio.ResponseAPDU;
 
-import com.chainora.applet.ChainoraWalletApplet;
+import com.chainora.wallet.ChainoraWallet;
 
 import java.util.ArrayList;
 
@@ -20,7 +20,8 @@ import java.util.ArrayList;
  * @author Petr Svenda, Dusan Klinec (ph4r05)
  */
 public class BaseTest {
-    private static String APPLET_AID = "01ffff0405060708090102";
+    // 0xF0, 0x56, 0x4E, 0x43, 0x48, 0x57, 0x01
+    private static String APPLET_AID = "f0564e43485701";
     private static byte APPLET_AID_BYTE[] = Util.hexStringToByteArray(APPLET_AID);
 
     protected CardType cardType = CardType.JCARDSIMLOCAL;
@@ -76,7 +77,7 @@ public class BaseTest {
 
         } else if (cardType != CardType.PHYSICAL && cardType != CardType.PHYSICAL_JAVAX) {
             // Running in the simulator
-            runCfg.setAppletToSimulate(ChainoraWalletApplet.class)
+            runCfg.setAppletToSimulate(ChainoraWallet.class)
                     .setTestCardType(CardType.JCARDSIMLOCAL)
                     .setbReuploadApplet(true)
                     .setInstallData(installData);
