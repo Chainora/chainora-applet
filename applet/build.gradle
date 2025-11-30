@@ -79,10 +79,8 @@ final def JC_SELECTED = JC305u3
 final def capFileName = 'applet.cap'  
 final def packageAid = 'f0:56:4e:43:48:57'  
 final def walletAid = 'f0:56:4e:43:48:57:01'  
-final def storageAid = 'f0:56:4e:43:48:57:02'  
-final def walletClass = 'applet.ChainoraWallet'  
-final def storageClass = 'applet.ChainoraStorage'  
-  
+final def walletClass = 'com.chainora.applet.ChainoraWalletApplet'  
+
 javacard {  
     config {  
         jckit JC_SELECTED  
@@ -91,60 +89,17 @@ javacard {
         addImplicitJcardSimJunit false  
           
         cap {  
-            packageName 'applet'  
+            packageName 'com.chainora.applet'  
             version '0.1'  
             aid packageAid  
             output capFileName  
-            sources rootPath + '/applet/src/main/java/applet'  
-            targetsdk JC305u3  
+            sources rootPath + '/applet/src/main/java/com/chainora/applet'  
+            targetsdk JC305u3
               
             applet {  
                 className walletClass  
                 aid walletAid  
-            }  
-              
-            applet {  
-                className storageClass  
-                aid storageAid  
-            }  
-        }  
-    }  
-}  
-  
-project.afterEvaluate {  
-    tasks.named('installJavaCard') {  
-        enabled = false  
-    }  
-      
-    task installJavaCardMultiple(type: DefaultTask) {  
-        description = 'Install all applets from CAP file'  
-        group = 'global platform'  
-          
-        dependsOn 'buildJavaCard', 'deleteJavaCardPackages'  
-          
-        doLast {  
-            def capFile = "${project.buildDir.absolutePath}${File.separator}javacard${File.separator}${capFileName}"   
-            project.configurations.runtimeClasspath.resolve()   
-            def gpClasspath = project.configurations.runtimeClasspath.asPath   
-              
-            project.exec {   
-                executable = 'java'   
-                args = ['-cp', gpClasspath, 'pro.javacard.gp.GPTool',   
-                        '--install', capFile,   
-                        '--package', packageAid,   
-                        '--applet', walletAid,   
-                        '-d']   
-            }   
-              
-            // Create additional applet instance without reloading CAP   
-            project.exec {   
-                executable = 'java'   
-                args = ['-cp', gpClasspath, 'pro.javacard.gp.GPTool',   
-                        '--create', storageAid,   
-                        '--package', packageAid,   
-                        '--applet', storageAid,   
-                        '-d']   
-            }   
+            }
         }  
     }  
 }

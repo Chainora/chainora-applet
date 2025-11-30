@@ -1,4 +1,4 @@
-# Chainora Applet
+# Chainora Wallet Applet
 
 ## Building cap
 

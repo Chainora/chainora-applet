@@ -1,6 +1,6 @@
 package main;
 
-import applet.ChainoraWallet;
+import com.chainora.applet.ChainoraWalletApplet;
 import com.licel.jcardsim.smartcardio.CardSimulator;
 import com.licel.jcardsim.utils.AIDUtil;
 import javacard.framework.AID;
@@ -13,7 +13,7 @@ public class Run {
 
         // 2. install applet
         AID appletAID = AIDUtil.create("F000000001");
-        simulator.installApplet(appletAID, ChainoraWallet.class);
+        simulator.installApplet(appletAID, ChainoraWalletApplet.class);
 
         // 3. select applet
         simulator.selectApplet(appletAID);

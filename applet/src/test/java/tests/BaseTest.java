@@ -1,6 +1,5 @@
 package tests;
 
-import applet.ChainoraWallet;
 import cz.muni.fi.crocs.rcard.client.CardManager;
 import cz.muni.fi.crocs.rcard.client.CardType;
 import cz.muni.fi.crocs.rcard.client.RunConfig;
@@ -9,6 +8,9 @@ import cz.muni.fi.crocs.rcard.client.Util;
 import javax.smartcardio.CardException;
 import javax.smartcardio.CommandAPDU;
 import javax.smartcardio.ResponseAPDU;
+
+import com.chainora.applet.ChainoraWalletApplet;
+
 import java.util.ArrayList;
 
 /**
@@ -74,7 +76,7 @@ public class BaseTest {
 
         } else if (cardType != CardType.PHYSICAL && cardType != CardType.PHYSICAL_JAVAX) {
             // Running in the simulator
-            runCfg.setAppletToSimulate(ChainoraWallet.class)
+            runCfg.setAppletToSimulate(ChainoraWalletApplet.class)
                     .setTestCardType(CardType.JCARDSIMLOCAL)
                     .setbReuploadApplet(true)
                     .setInstallData(installData);
