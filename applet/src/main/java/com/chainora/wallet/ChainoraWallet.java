@@ -53,12 +53,10 @@ public class ChainoraWallet extends Applet {
 				genKeyPair(secure, apdu);
 				break;
 			case 0x21: // GET_PUBLIC_KEY:
+				getPublicKey(secure, apdu);
 				break;
 			case 0x22: // SIGN_HASH:
 				signHash(secure, apdu);
-				break;
-			case 0x30: // GET_VERY_SECRET_KEY:
-				getVerySecretKey(secure, apdu);
 				break;
 			default:
 				ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
@@ -66,6 +64,7 @@ public class ChainoraWallet extends Applet {
 		}
 	}
 
+	// === PIN Management Commands ===
 	private void initPin(IChainoraSecure secure, APDU apdu) {
 		byte[] buffer = apdu.getBuffer();
 		short bytesRead = apdu.setIncomingAndReceive();
@@ -94,13 +93,14 @@ public class ChainoraWallet extends Applet {
 		apdu.setOutgoingAndSend((short) 0, (short) 1);
 	}
 
-	private void getVerySecretKey(IChainoraSecure secure, APDU apdu) {
-		byte[] buffer = apdu.getBuffer();
-		short length = secure.getVerySecretKey(buffer, (short) 0);
-		apdu.setOutgoingAndSend((short) 0, length);
+	private void genKeyPair(IChainoraSecure storage, APDU apdu) {
+		storage.generateKeyPair();
 	}
 
-	private void genKeyPair(IChainoraSecure storage, APDU apdu) {
+	private void getPublicKey(IChainoraSecure storage, APDU apdu) {
+		byte[] buffer = apdu.getBuffer();
+		short length = storage.getPublicKey(buffer, (short) 0);
+		apdu.setOutgoingAndSend((short) 0, length);
 	}
 
 	private void signHash(IChainoraSecure storage, APDU apdu) {

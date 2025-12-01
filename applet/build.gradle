@@ -139,8 +139,6 @@ javacard {
     }      
 }
 
-// Custom tasks để install từng CAP file riêng biệt
-// Sử dụng JavaExec thay vì Exec để tương thích với GlobalPlatformPro
 task loadShareable(type: JavaExec, dependsOn: 'buildJavaCard') {
     description = 'Load shareable library to card (library, not applet)'
     group = 'javacard'
@@ -169,7 +167,8 @@ task installSecure(type: JavaExec, dependsOn: 'installWallet') {
     
     classpath = configurations.runtimeClasspath
     mainClass = 'pro.javacard.gp.GPTool'
-    args = ['--install', "${buildDir}/javacard/secure.cap", '-d']
+    // Use --install which will load package if needed and create applet instance
+    args = ['--install', "${buildDir}/javacard/secure.cap", '-d', '-v']
     
     ignoreExitValue = true
 }
@@ -179,7 +178,6 @@ task installAllApplets(dependsOn: 'installSecure') {
     group = 'javacard'
 }
 
-// Tasks để xóa packages cũ trước khi reinstall
 task deleteSecureApplet(type: JavaExec) {
     description = 'Delete secure applet from card'
     group = 'javacard'
@@ -244,7 +242,6 @@ task installChainoraApplet(dependsOn: ['deleteAllPackages', 'buildJavaCard', 'in
     description = 'Delete old packages and reinstall all CAP files to card'
     group = 'javacard'
     
-    // Đảm bảo thứ tự: delete -> build -> install
     tasks.findByName('buildJavaCard').mustRunAfter 'deleteAllPackages'
     tasks.findByName('loadShareable').mustRunAfter 'buildJavaCard'
 }
