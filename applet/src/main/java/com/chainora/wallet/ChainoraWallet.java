@@ -25,9 +25,9 @@ public class ChainoraWallet extends Applet {
 		if (selectingApplet())
 			return;
 
-		IChainoraSecure storage = null;
+		IChainoraSecure secure = null;
 		try {
-			storage = Utils.getChainoraStorage(storageAID);
+			secure = Utils.getChainoraSecure(storageAID);
 		} catch (ISOException e) {
 			ISOException.throwIt(e.getReason());
 		}
@@ -35,27 +35,30 @@ public class ChainoraWallet extends Applet {
 		byte[] buffer = apdu.getBuffer();
 		switch (buffer[ISO7816.OFFSET_INS]) {
 			case 0x10: // INIT_PIN:
-				initPin(storage, apdu);
+				initPin(secure, apdu);
 				break;
 			case 0x11: // VERIFY_PIN:
-				verifyPin(storage, apdu);
+				verifyPin(secure, apdu);
 				break;
 			case 0x12: // UPDATE_PIN:
-				updatePin(storage, apdu);
+				updatePin(secure, apdu);
 				break;
 			case 0x13: // RESET_PIN:
-				resetPin(storage, apdu);
+				resetPin(secure, apdu);
+				break;
+			case 0x14: // IS_PIN_INITIALIZED:
+				isPinInitialized(secure, apdu);
 				break;
 			case 0x20: // GEN_KEY_PAIR:
-				genKeyPair(storage, apdu);
+				genKeyPair(secure, apdu);
 				break;
 			case 0x21: // GET_PUBLIC_KEY:
 				break;
 			case 0x22: // SIGN_HASH:
-				signHash(storage, apdu);
+				signHash(secure, apdu);
 				break;
 			case 0x30: // GET_VERY_SECRET_KEY:
-				getVerySecretKey(storage, apdu);
+				getVerySecretKey(secure, apdu);
 				break;
 			default:
 				ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
@@ -63,34 +66,38 @@ public class ChainoraWallet extends Applet {
 		}
 	}
 
-	private void initPin(IChainoraSecure storage, APDU apdu) {
+	private void initPin(IChainoraSecure secure, APDU apdu) {
 		byte[] buffer = apdu.getBuffer();
 		short bytesRead = apdu.setIncomingAndReceive();
-		storage.initPin(buffer, ISO7816.OFFSET_CDATA, (byte) bytesRead);
+		secure.initPin(buffer, ISO7816.OFFSET_CDATA, (byte) bytesRead);
 	}
 
-	private void verifyPin(IChainoraSecure storage, APDU apdu) {
+	private void verifyPin(IChainoraSecure secure, APDU apdu) {
 		byte[] buffer = apdu.getBuffer();
 		short bytesRead = apdu.setIncomingAndReceive();
-		storage.verifyPin(buffer, ISO7816.OFFSET_CDATA, (byte) bytesRead);
+		secure.verifyPin(buffer, ISO7816.OFFSET_CDATA, (byte) bytesRead);
 	}
 
-	private void updatePin(IChainoraSecure storage, APDU apdu) {
+	private void updatePin(IChainoraSecure secure, APDU apdu) {
 		byte[] buffer = apdu.getBuffer();
 		short bytesRead = apdu.setIncomingAndReceive();
-		storage.updatePin(buffer, ISO7816.OFFSET_CDATA, (byte) bytesRead);
+		secure.updatePin(buffer, ISO7816.OFFSET_CDATA, (byte) bytesRead);
 	}
 
-	private void resetPin(IChainoraSecure storage, APDU apdu) {
-		storage.resetPin();
+	private void resetPin(IChainoraSecure secure, APDU apdu) {
+		secure.resetPin();
 	}
 
-	private void getVerySecretKey(IChainoraSecure storage, APDU apdu) {
-		byte[] secretKey = storage.getVerySecretKey();
+	private void isPinInitialized(IChainoraSecure secure, APDU apdu) {
 		byte[] buffer = apdu.getBuffer();
-		short lc = (short) secretKey.length;
-		Util.arrayCopyNonAtomic(secretKey, (short) 0, buffer, (short) 0, lc);
-		apdu.setOutgoingAndSend((short) 0, lc);
+		buffer[0] = (byte) (secure.isPinInitialize() ? 1 : 0);
+		apdu.setOutgoingAndSend((short) 0, (short) 1);
+	}
+
+	private void getVerySecretKey(IChainoraSecure secure, APDU apdu) {
+		byte[] buffer = apdu.getBuffer();
+		short length = secure.getVerySecretKey(buffer, (short) 0);
+		apdu.setOutgoingAndSend((short) 0, length);
 	}
 
 	private void genKeyPair(IChainoraSecure storage, APDU apdu) {

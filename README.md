@@ -47,16 +47,6 @@ Or inspect already installed applets:
 ./gradlew listJavaCard
 ```
 
-## Running on simulator (jCardSim)
-
-As simple as:
-
-```bash
-./gradlew run
-```
-
-By default the run task will run the main Java application implemented at: `main/java/main/Run.java`, using the `ChainoraWallet` applet.
-
 ## Running tests
 
 ```

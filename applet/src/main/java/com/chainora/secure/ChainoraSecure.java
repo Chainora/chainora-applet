@@ -19,7 +19,7 @@ public class ChainoraSecure extends Applet implements IChainoraSecure {
 
 	public ChainoraSecure() {
 		pinInitialized = false;
-		verySecretKey = new byte[] { 'C', 'h', 'a', 'i', 'n', 'o', 'r', 'a', ' ', 'S', 't', 'o', 'r', 'a', 'g', 'e' };
+		verySecretKey = new byte[] { 'C', 'h', 'a', 'i', 'n', 'o', 'r', 'a', ' ', 'S', 'e', 'c', 'u', 'r', 'e' };
 		pin = new OwnerPIN(Configuration.PIN_TRY_LIMIT, Configuration.PIN_MAX_SIZE);
 		register();
 	}
@@ -71,11 +71,15 @@ public class ChainoraSecure extends Applet implements IChainoraSecure {
 
 	// === Test Very Secret Key Interface ===
 	@Override
-	public byte[] getVerySecretKey() {
-		if (!pinInitialized || !pin.isValidated()) {
+	public short getVerySecretKey(byte[] dest, short destOffset) {
+		if (!pinInitialized) {
+			ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+		}
+		if (!pin.isValidated()) {
 			ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED);
 		}
-		return verySecretKey;
+		Util.arrayCopyNonAtomic(verySecretKey, (short) 0, dest, destOffset, (short) verySecretKey.length);
+		return (short) verySecretKey.length;
 	}
 
 	// === Shareable Interface ===

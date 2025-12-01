@@ -58,10 +58,6 @@ dependencies {
     runtimeClasspath 'com.github.martinpaljak:globalplatformpro:20.01.23'
 }  
   
-application {  
-    mainClass = 'main.Run'  
-}  
-  
 test {  
     useJUnitPlatform {  
         excludeTags 'manual'  

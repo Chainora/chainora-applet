@@ -16,5 +16,5 @@ public interface IChainoraSecure extends Shareable {
     void resetPin();
 
     // === Very Secret Methods ===
-    byte[] getVerySecretKey();
+    short getVerySecretKey(byte[] dest, short destOffset);
 }

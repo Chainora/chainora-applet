@@ -6,7 +6,7 @@ import javacard.framework.ISO7816;
 import javacard.framework.ISOException;
 
 public final class Utils {
-    public static final IChainoraSecure getChainoraStorage(AID serverAID) {
+    public static final IChainoraSecure getChainoraSecure(AID serverAID) {
         IChainoraSecure storage = (IChainoraSecure) JCSystem.getAppletShareableInterfaceObject(serverAID, (byte) 0);
         if (storage == null) {
             ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
