@@ -83,165 +83,19 @@ javacard {
         debugGpPro true
         addImplicitJcardSim false      
         addImplicitJcardSimJunit false         
-        
-        cap {
-            packageName 'com.chainora.shareable'      
-            version '0.1'    
-            aid 'f0:56:4e:43:48:56'      
-            output 'shareable.cap'      
-            sources rootPath + '/applet/src/main/java/com/chainora/shareable'      
-            targetsdk JC305u3    
-        }
 
         cap {      
             packageName 'com.chainora.wallet'      
             version '0.1'    
             aid 'f0:56:4e:43:48:57'      
-            output 'wallet.cap'      
-            sources rootPath + '/applet/src/main/java/com/chainora/wallet'  
-            sources2 rootPath + '/applet/src/main/java/com/chainora/shareable'    
+            output 'applet.cap'      
+            sources rootPath + '/applet/src/main/java/com/chainora/wallet'   
             targetsdk JC305u3    
             
             applet {      
                 className 'com.chainora.wallet.ChainoraWallet'      
                 aid 'f0:56:4e:43:48:57:01'      
             }    
-    
-            dependencies {  
-                local {  
-                    jar rootPath + '/applet/build/javacard/shareable.exp/shareable.jar'  
-                    exps rootPath + '/applet/build/javacard/shareable.exp'  
-                }
-            }   
-        }    
-    
-        cap {    
-            packageName 'com.chainora.secure'      
-            version '0.1'    
-            aid 'f0:56:4e:43:48:58'      
-            output 'secure.cap'      
-            sources rootPath + '/applet/src/main/java/com/chainora/secure'    
-              
-            targetsdk JC305u3    
-
-            applet {      
-                className 'com.chainora.secure.ChainoraSecure'      
-                aid 'f0:56:4e:43:48:58:01'      
-            }    
-    
-            dependencies {  
-                local {  
-                    jar rootPath + '/applet/build/javacard/shareable.exp/shareable.jar'  
-                    exps rootPath + '/applet/build/javacard/shareable.exp'  
-                }
-            }      
-        }    
+        }
     }      
-}
-
-task loadShareable(type: JavaExec, dependsOn: 'buildJavaCard') {
-    description = 'Load shareable library to card (library, not applet)'
-    group = 'javacard'
-    
-    classpath = configurations.runtimeClasspath
-    mainClass = 'pro.javacard.gp.GPTool'
-    args = ['--load', "${buildDir}/javacard/shareable.cap", '-d']
-    
-    ignoreExitValue = true
-}
-
-task installWallet(type: JavaExec, dependsOn: 'loadShareable') {
-    description = 'Install wallet applet to card'
-    group = 'javacard'
-    
-    classpath = configurations.runtimeClasspath
-    mainClass = 'pro.javacard.gp.GPTool'
-    args = ['--install', "${buildDir}/javacard/wallet.cap", '-d']
-    
-    ignoreExitValue = true
-}
-
-task installSecure(type: JavaExec, dependsOn: 'installWallet') {
-    description = 'Install secure applet to card'
-    group = 'javacard'
-    
-    classpath = configurations.runtimeClasspath
-    mainClass = 'pro.javacard.gp.GPTool'
-    // Use --install which will load package if needed and create applet instance
-    args = ['--install', "${buildDir}/javacard/secure.cap", '-d', '-v']
-    
-    ignoreExitValue = true
-}
-
-task installAllApplets(dependsOn: 'installSecure') {
-    description = 'Install all CAP files to card sequentially (load library first, then install applets)'
-    group = 'javacard'
-}
-
-task deleteSecureApplet(type: JavaExec) {
-    description = 'Delete secure applet from card'
-    group = 'javacard'
-    
-    classpath = configurations.runtimeClasspath
-    mainClass = 'pro.javacard.gp.GPTool'
-    args = ['--delete', 'f0:56:4e:43:48:58:01', '-d']
-    
-    ignoreExitValue = true
-}
-
-task deleteSecurePackage(type: JavaExec, dependsOn: 'deleteSecureApplet') {
-    description = 'Delete secure package from card'
-    group = 'javacard'
-    
-    classpath = configurations.runtimeClasspath
-    mainClass = 'pro.javacard.gp.GPTool'
-    args = ['--delete', 'f0:56:4e:43:48:58', '-d']
-    
-    ignoreExitValue = true
-}
-
-task deleteWalletApplet(type: JavaExec, dependsOn: 'deleteSecurePackage') {
-    description = 'Delete wallet applet from card'
-    group = 'javacard'
-    
-    classpath = configurations.runtimeClasspath
-    mainClass = 'pro.javacard.gp.GPTool'
-    args = ['--delete', 'f0:56:4e:43:48:57:01', '-d']
-    
-    ignoreExitValue = true
-}
-
-task deleteWalletPackage(type: JavaExec, dependsOn: 'deleteWalletApplet') {
-    description = 'Delete wallet package from card'
-    group = 'javacard'
-    
-    classpath = configurations.runtimeClasspath
-    mainClass = 'pro.javacard.gp.GPTool'
-    args = ['--delete', 'f0:56:4e:43:48:57', '-d']
-    
-    ignoreExitValue = true
-}
-
-task deleteShareablePackage(type: JavaExec, dependsOn: 'deleteWalletPackage') {
-    description = 'Delete shareable package from card'
-    group = 'javacard'
-    
-    classpath = configurations.runtimeClasspath
-    mainClass = 'pro.javacard.gp.GPTool'
-    args = ['--delete', 'f0:56:4e:43:48:56', '-d']
-    
-    ignoreExitValue = true
-}
-
-task deleteAllPackages(dependsOn: 'deleteShareablePackage') {
-    description = 'Delete all packages from card (in correct order: applets first, then packages)'
-    group = 'javacard'
-}
-
-task installChainoraApplet(dependsOn: ['deleteAllPackages', 'buildJavaCard', 'installAllApplets']) {
-    description = 'Delete old packages and reinstall all CAP files to card'
-    group = 'javacard'
-    
-    tasks.findByName('buildJavaCard').mustRunAfter 'deleteAllPackages'
-    tasks.findByName('loadShareable').mustRunAfter 'buildJavaCard'
 }

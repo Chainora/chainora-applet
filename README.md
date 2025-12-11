@@ -38,7 +38,7 @@ Typical output:
 ## Installation on a (physical) card
 
 ```bash
-./gradlew installChainoraApplet --info --rerun-tasks
+./gradlew installJavaCard --info --rerun-tasks
 ```
 
 Or inspect already installed applets:
