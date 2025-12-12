@@ -3,6 +3,8 @@
 *.iml
 applet/out
 applet/build
+client/build
+client/out
 simulator/build
 simulator/out
 tester/build
