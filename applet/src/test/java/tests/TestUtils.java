@@ -91,6 +91,28 @@ public class TestUtils {
         return sb.toString();
     }
 
+    public static byte[] extractEvmAddressFromPublicKey(byte[] publicKey) {
+        if (publicKey == null || publicKey.length < 64) {
+            throw new IllegalArgumentException("Public key must contain X and Y coordinates");
+        }
+
+        int offset = 0;
+        if (publicKey.length == 65) {
+            if (publicKey[0] != 0x04) {
+                throw new IllegalArgumentException("Unsupported public key format");
+            }
+            offset = 1;
+        } else if (publicKey.length != 64) {
+            throw new IllegalArgumentException("Public key must be 64 or 65 bytes long");
+        }
+
+        byte[] uncompressed = Arrays.copyOfRange(publicKey, offset, offset + 64);
+        byte[] hash = keccak256Hash(uncompressed);
+        byte[] address = new byte[20];
+        System.arraycopy(hash, hash.length - 20, address, 0, 20);
+        return address;
+    }
+
     public static boolean isAllZero(byte[] input) {
         for (byte b : input) {
             if (b != 0x00) {

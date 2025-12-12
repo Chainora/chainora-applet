@@ -107,6 +107,11 @@ public class AppletTest extends BaseTest {
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) getPubKeyResponse.getSW());
         Assert.assertNotNull(getPubKeyResponse.getBytes());
         Assert.assertTrue(getPubKeyResponse.getData().length > 0);
+
+        // Get EVM address from public key
+        final byte[] pubKey = getPubKeyResponse.getData();
+        final byte[] evmAddress = TestUtils.extractEvmAddressFromPublicKey(pubKey);
+        System.out.println("EVM Address: 0x" + TestUtils.bytesToHex(evmAddress));
     }
 
     // Test sign data verified Pin but wrong data length
@@ -232,6 +237,8 @@ public class AppletTest extends BaseTest {
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) getPubKeyResponse.getSW());
         Assert.assertNotNull(getPubKeyResponse.getBytes());
         Assert.assertTrue(getPubKeyResponse.getData().length > 0);
+
+        // Save original public key for later comparison
         final byte[] originalPubKey = getPubKeyResponse.getData();
 
         // Prepare EVM raw transaction (before hashing and rlp encoding)
