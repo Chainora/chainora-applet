@@ -1,0 +1,29 @@
+apply plugin: 'application'
+
+mainClassName = 'ChainoraClient'
+
+repositories {
+    jcenter()
+    mavenCentral()  
+    maven { url "https://javacard.pro/maven" }  
+    maven { url "https://deadcode.me/mvn" }
+    maven { url "https://jitpack.io" }
+    maven { url "https://mvnrepository.com/artifact" }
+    flatDir { dirs "${rootDir}/libs" }
+}
+
+dependencies {
+    implementation files("${rootDir}/libs/javacard-tools-1.0.5.jar")
+    implementation files("${rootDir}/libs/jcardsum-3.0.6.0-javadoc.jar")
+    implementation 'org.slf4j:slf4j-api:2.0.5'
+    implementation 'org.slf4j:slf4j-log4j12:2.0.5'
+    implementation 'org.apache.logging.log4j:log4j-core:2.20.0'
+
+    implementation(group: 'com.klinec', name: 'javacard-tools', version: '1.0.5') {
+        exclude group: "com.klinec", module: "jcardsim"  
+    }  
+}
+
+tasks.named('run') {
+    standardInput = System.in
+}

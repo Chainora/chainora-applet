@@ -16,6 +16,7 @@ import javax.smartcardio.ResponseAPDU;
  *
  * @author xsvenda, Dusan Klinec (ph4r05)
  */
+@SuppressWarnings("restriction")
 public class AppletTest extends BaseTest {
 
     public AppletTest() {

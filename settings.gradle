@@ -1,2 +1,2 @@
 rootProject.name = 'chainora-applet'
-include 'applet'
+include 'applet', 'client'

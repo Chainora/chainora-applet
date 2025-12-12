@@ -7,7 +7,7 @@
 - Run the `buildJavaCard` task:
 
 ```bash
-./gradlew buildJavaCard  --info --rerun-tasks
+./gradlew :applet:buildJavaCard  --info --rerun-tasks
 ```
 
 Generates a new cap file `./applet/out/cap/applet.cap`
@@ -38,19 +38,27 @@ Typical output:
 ## Installation on a (physical) card
 
 ```bash
-./gradlew installJavaCard --info --rerun-tasks
+./gradlew :applet:installJavaCard --info --rerun-tasks
 ```
 
 Or inspect already installed applets:
 
 ```bash
-./gradlew listJavaCard
+./gradlew :applet:listJavaCard
+```
+
+## Running on a (physical) card
+
+As simple as:
+
+```bash
+./gradlew :client:run
 ```
 
 ## Running tests
 
 ```bash
-./gradlew test --info --rerun-tasks
+./gradlew :applet:test --info --rerun-tasks
 ```
 
 Output:
@@ -97,55 +105,6 @@ have problems with recognizing some certificates as valid.
 Only some Java versions are supported by the JavaCard SDKs.
 Check the following compatibility table for more info:
 https://github.com/martinpaljak/ant-javacard/wiki/Version-compatibility
-
-## Coverage
-
-This is a nice benefit of the IntelliJ Idea - gives you coverage
-results out of the box.
-
-You can see the test coverage on your applet code.
-
-- Go to Gradle plugin in IntelliJ Idea
-- Tasks -> verification -> test
-- Right click - run with coverage.
-
-Coverage summary:
-![coverage summary](https://raw.githubusercontent.com/ph4r05/javacard-gradle-template/master/.github/image/coverage_summary.png)
-
-Coverage code:
-![coverage code](https://raw.githubusercontent.com/ph4r05/javacard-gradle-template/master/.github/image/coverage_class.png)
-
-## Troubleshooting
-
-If you experience the following error:
-
-```
-java.lang.VerifyError: Expecting a stackmap frame at branch target 19
-    Exception Details:
-      Location:
-        javacard/framework/APDU.<init>(Z)V @11: ifeq
-      Reason:
-        Expected stackmap frame at this location.
-```
-
-Then try running JVM with `-noverify` option.
-
-In the IntelliJ Idea this can be configured in the top tool bar
-with run configurations combo box -> click -> Edit Configurations -> VM Options.
-
-However, the `com.klinec:jcardsim:3.0.5.11` should not need the `-noverify`.
-
-### Invalid APDU loaded
-
-You may experience error like this: `Invalid APDU loaded. You may have JC API in your classpath before JCardSim. Classpath:`
-
-This error is thrown by JCardSim which tries to load APDU class augmented with another methods. The augmented APDU version is contained in the JCardSim JAR.
-However, if `api_class.jar` from the JavaCard SDK is on the classpath before the JCardSim, this problem occurs. The classpath ordering causes non-augmented version is loaded which prevents JCardSim from correct function.
-
-gradle-javacard-plugin v1.7.4 should fix this error.
-
-If you still experience this in IntelliJ Idea try: open project structure settings -> modules -> applet_test and move JCardSim to the top so it appears first on the classpath.
-This has to be done with each project reload from the Gradle.
 
 ## Contributions
 

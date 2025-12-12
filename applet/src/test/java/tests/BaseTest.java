@@ -19,6 +19,7 @@ import java.util.ArrayList;
  *
  * @author Petr Svenda, Dusan Klinec (ph4r05)
  */
+@SuppressWarnings("restriction")
 public class BaseTest {
     // 0xF0, 0x56, 0x4E, 0x43, 0x48, 0x57, 0x01
     private static String APPLET_AID = "f0564e43485701";
