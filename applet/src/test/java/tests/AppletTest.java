@@ -40,7 +40,7 @@ public class AppletTest extends BaseTest {
     }
 
     @Test
-    public void isPinInitialized_test() throws Exception {
+    public void isPinInitialized_PinReset_ReturnsNotInitialized() throws Exception {
         final CardManager cardManager = connect();
 
         // Reset PIN
@@ -60,7 +60,7 @@ public class AppletTest extends BaseTest {
 
     // Test getPublicKey not verified Pin
     @Test
-    public void getPublicKey_notVerified() throws Exception {
+    public void getPublicKey_PinNotVerified_ReturnsConditionsNotSatisfied() throws Exception {
         final CardManager cardManager = connect();
 
         // Get Public Key
@@ -73,7 +73,7 @@ public class AppletTest extends BaseTest {
 
     // Test getPublicKey verified Pin
     @Test
-    public void getPublicKey_verified() throws Exception {
+    public void getPublicKey_PinVerified_ReturnsPublicKey() throws Exception {
         final CardManager cardManager = connect();
 
         // Reset PIN
@@ -116,7 +116,7 @@ public class AppletTest extends BaseTest {
 
     // Test sign data verified Pin but wrong data length
     @Test
-    public void signData_verified_wrongLength() throws Exception {
+    public void signData_InvalidHashLength_ReturnsWrongLength() throws Exception {
         final CardManager cardManager = connect();
 
         // Reset PIN
@@ -149,7 +149,7 @@ public class AppletTest extends BaseTest {
 
     // Test sign data verified Pin
     @Test
-    public void signData_verified() throws Exception {
+    public void signData_PinVerified_ReturnsSignature() throws Exception {
         final CardManager cardManager = connect();
 
         // Reset PIN
@@ -203,7 +203,7 @@ public class AppletTest extends BaseTest {
 
     // Test EVM-base signing flow
     @Test
-    public void evmSignFlow_verified() throws Exception {
+    public void evmSignFlow_PinVerified_CompletesSuccessfully() throws Exception {
         final CardManager cardManager = connect();
 
         // Reset PIN
