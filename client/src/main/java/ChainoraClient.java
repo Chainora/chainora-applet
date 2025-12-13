@@ -26,7 +26,7 @@ public class ChainoraClient {
 
             final PinManager pinManager = new PinManager(cardManager);
             final KeyManager keyManager = new KeyManager(cardManager);
-            final WalletManager walletManager = new WalletManager(cardManager);
+            final WalletManager walletManager = new WalletManager(scanner, cardManager);
 
             runCli(scanner, pinManager, keyManager, walletManager);
             System.out.println("Goodbye!");
@@ -62,7 +62,7 @@ public class ChainoraClient {
                     handleKeyMenu(scanner, keyManager);
                     break;
                 case 3:
-                    handleWalletMenu(walletManager);
+                    handleWalletMenu(scanner, walletManager);
                     break;
                 case 4:
                     exit = true;
@@ -140,8 +140,37 @@ public class ChainoraClient {
         }
     }
 
-    private static void handleWalletMenu(WalletManager walletManager) {
-        walletManager.printComingSoon();
+    private static void handleWalletMenu(Scanner scanner, WalletManager walletManager) {
+        walletManager.selectBalanceProvider();
+        walletManager.selectTransactionNetwork();
+        boolean back = false;
+        while (!back) {
+            System.out.println();
+            System.out.println("--- WALLET MANAGEMENT ---");
+            System.out.println("1 - Init wallet");
+            System.out.println("2 - View wallet");
+            System.out.println("3 - Send ETH");
+            System.out.println("4 - Back");
+            System.out.print("Enter 1-4: ");
+
+            final int choice = readChoice(scanner, 1, 4);
+            switch (choice) {
+                case 1:
+                    walletManager.initWallet();
+                    break;
+                case 2:
+                    walletManager.viewWallet();
+                    break;
+                case 3:
+                    walletManager.sendEth();
+                    break;
+                case 4:
+                    back = true;
+                    break;
+                default:
+                    System.out.println("Invalid choice.");
+            }
+        }
     }
 
     private static byte[] promptPin(Scanner scanner, String label) {
