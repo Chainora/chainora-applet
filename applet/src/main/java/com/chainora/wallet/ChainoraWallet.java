@@ -3,7 +3,6 @@ package com.chainora.wallet;
 import javacard.framework.APDU;
 import javacard.framework.Applet;
 import javacard.framework.ISO7816;
-import javacard.framework.ISOException;
 import javacard.framework.OwnerPIN;
 import javacard.security.ECKey;
 import javacard.security.ECPrivateKey;
@@ -12,189 +11,78 @@ import javacard.security.KeyBuilder;
 import javacard.security.KeyPair;
 import javacard.security.Signature;
 
+/**
+ * Chainora Wallet Applet - Main entry point.
+ * Handles applet lifecycle and command dispatching.
+ */
 public class ChainoraWallet extends Applet {
-	private static final byte INS_INIT_PIN = (byte) 0x10;
-	private static final byte INS_VERIFY_PIN = (byte) 0x11;
-	private static final byte INS_UPDATE_PIN = (byte) 0x12;
-	private static final byte INS_RESET_PIN = (byte) 0x13;
-	private static final byte INS_IS_PIN_INITIALIZED = (byte) 0x14;
-	private static final byte INS_GEN_KEY_PAIR = (byte) 0x20;
-	private static final byte INS_GET_PUBLIC_KEY = (byte) 0x21;
-	private static final byte INS_SIGN_HASH = (byte) 0x22;
+    private static final short SW_NO_ERROR = ISO7816.SW_NO_ERROR;
 
-	private boolean pinInitialized;
-	private final OwnerPIN pin;
-	private final ECPrivateKey privateKey;
-	private final ECPublicKey publicKey;
-	private final KeyPair keyPair;
-	private final Signature ecdsaSignature;
+    private final CommandDispatcher dispatcher;
+    private final PinValidator pinValidator;
 
-	public static void install(byte[] bArray, short bOffset, byte bLength) {
-		new ChainoraWallet();
-	}
+    public static void install(byte[] bArray, short bOffset, byte bLength) {
+        new ChainoraWallet();
+    }
 
-	private ChainoraWallet() {
-		pinInitialized = false;
-		pin = new OwnerPIN(Configuration.PIN_TRY_LIMIT, Configuration.PIN_MAX_SIZE);
+    private ChainoraWallet() {
+        OwnerPIN pin = new OwnerPIN(Configuration.PIN_TRY_LIMIT, Configuration.PIN_MAX_SIZE);
+        this.pinValidator = new PinValidator(pin);
 
-		privateKey = (ECPrivateKey) KeyBuilder.buildKey(
-				KeyBuilder.TYPE_EC_FP_PRIVATE,
-				Configuration.KEY_LENGTH_BITS,
-				false);
+        ECPrivateKey privateKey = (ECPrivateKey) KeyBuilder.buildKey(
+                KeyBuilder.TYPE_EC_FP_PRIVATE,
+                Configuration.KEY_LENGTH_BITS,
+                false);
 
-		publicKey = (ECPublicKey) KeyBuilder.buildKey(
-				KeyBuilder.TYPE_EC_FP_PUBLIC,
-				Configuration.KEY_LENGTH_BITS,
-				false);
+        ECPublicKey publicKey = (ECPublicKey) KeyBuilder.buildKey(
+                KeyBuilder.TYPE_EC_FP_PUBLIC,
+                Configuration.KEY_LENGTH_BITS,
+                false);
 
-		setCurveParameters(privateKey);
-		setCurveParameters(publicKey);
+        setCurveParameters(privateKey);
+        setCurveParameters(publicKey);
 
-		keyPair = new KeyPair(publicKey, privateKey);
+        KeyPair keyPair = new KeyPair(publicKey, privateKey);
+        Signature ecdsaSignature = Signature.getInstance(Signature.ALG_ECDSA_SHA_256, false);
 
-		ecdsaSignature = Signature.getInstance(Signature.ALG_ECDSA_SHA_256, false);
-		register();
-	}
+        this.dispatcher = createDispatcher(keyPair, publicKey, privateKey, ecdsaSignature);
 
-	public void process(APDU apdu) {
-		if (selectingApplet()) {
-			return;
-		}
+        register();
+    }
 
-		byte[] buffer = apdu.getBuffer();
-		switch (buffer[ISO7816.OFFSET_INS]) {
-			case INS_INIT_PIN:
-				initPin(apdu);
-				break;
-			case INS_VERIFY_PIN:
-				verifyPin(apdu);
-				break;
-			case INS_UPDATE_PIN:
-				updatePin(apdu);
-				break;
-			case INS_RESET_PIN:
-				resetPin();
-				break;
-			case INS_IS_PIN_INITIALIZED:
-				sendPinState(apdu);
-				break;
-			case INS_GEN_KEY_PAIR:
-				generateKeyPair();
-				break;
-			case INS_GET_PUBLIC_KEY:
-				sendPublicKey(apdu);
-				break;
-			case INS_SIGN_HASH:
-				signHash(apdu);
-				break;
-			default:
-				ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
-		}
-	}
+    private CommandDispatcher createDispatcher(KeyPair keyPair, ECPublicKey publicKey,
+            ECPrivateKey privateKey, Signature ecdsaSignature) {
+        PinCommandHandler pinHandler = new PinCommandHandler(pinValidator);
 
-	private void initPin(APDU apdu) {
-		if (pinInitialized) {
-			ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
-		}
-		short bytesRead = receiveData(apdu);
-		if (bytesRead <= 0 || bytesRead > Configuration.PIN_MAX_SIZE) {
-			ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-		}
-		byte[] buffer = apdu.getBuffer();
-		pin.update(buffer, ISO7816.OFFSET_CDATA, (byte) bytesRead);
-		pinInitialized = true;
-	}
+        return CommandDispatcher.builder()
+                .register((byte) 0x10, pinHandler)
+                .register((byte) 0x11, pinHandler)
+                .register((byte) 0x12, pinHandler)
+                .register((byte) 0x13, pinHandler)
+                .register((byte) 0x14, pinHandler)
+                .register((byte) 0x20, new KeyCommandHandler(pinValidator, keyPair, publicKey))
+                .register((byte) 0x21, new KeyCommandHandler(pinValidator, keyPair, publicKey))
+                .register((byte) 0x22, new SignCommandHandler(pinValidator, privateKey, ecdsaSignature))
+                .build();
+    }
 
-	private void verifyPin(APDU apdu) {
-		ensurePinInitialized();
-		short bytesRead = receiveData(apdu);
-		if (bytesRead <= 0 || bytesRead > Configuration.PIN_MAX_SIZE) {
-			ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-		}
-		byte[] buffer = apdu.getBuffer();
-		if (!pin.check(buffer, ISO7816.OFFSET_CDATA, (byte) bytesRead)) {
-			ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED);
-		}
-	}
+    @Override
+    public void process(APDU apdu) {
+        if (selectingApplet()) {
+            return;
+        }
 
-	private void updatePin(APDU apdu) {
-		ensurePinInitialized();
-		if (!pin.isValidated()) {
-			ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED);
-		}
-		short bytesRead = receiveData(apdu);
-		if (bytesRead <= 0 || bytesRead > Configuration.PIN_MAX_SIZE) {
-			ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-		}
-		byte[] buffer = apdu.getBuffer();
-		pin.update(buffer, ISO7816.OFFSET_CDATA, (byte) bytesRead);
-	}
+        byte[] buffer = apdu.getBuffer();
+        byte ins = buffer[ISO7816.OFFSET_INS];
+        dispatcher.dispatch(apdu, ins);
+    }
 
-	private void resetPin() {
-		pin.reset();
-		pinInitialized = false;
-	}
-
-	private void sendPinState(APDU apdu) {
-		byte[] buffer = apdu.getBuffer();
-		buffer[0] = (byte) (pinInitialized ? 1 : 0);
-		apdu.setOutgoingAndSend((short) 0, (short) 1);
-	}
-
-	private void generateKeyPair() {
-		keyPair.genKeyPair();
-	}
-
-	private void sendPublicKey(APDU apdu) {
-		ensurePinInitialized();
-		if (!pin.isValidated()) {
-			ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED);
-		}
-		byte[] buffer = apdu.getBuffer();
-		short length = publicKey.getW(buffer, (short) 0);
-		apdu.setOutgoingAndSend((short) 0, length);
-	}
-
-	private void signHash(APDU apdu) {
-		ensurePinInitialized();
-		if (!pin.isValidated()) {
-			ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED);
-		}
-		short bytesRead = receiveData(apdu);
-		if (bytesRead != 32) {
-			ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-		}
-		byte[] buffer = apdu.getBuffer();
-		ecdsaSignature.init(privateKey, Signature.MODE_SIGN);
-		short sigLength = ecdsaSignature.signPreComputedHash(
-				buffer,
-				ISO7816.OFFSET_CDATA,
-				bytesRead,
-				buffer,
-				(short) 0);
-		apdu.setOutgoingAndSend((short) 0, sigLength);
-	}
-
-	private short receiveData(APDU apdu) {
-		short bytesRead = apdu.setIncomingAndReceive();
-		if (bytesRead <= 0) {
-			ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
-		}
-		return bytesRead;
-	}
-
-	private void ensurePinInitialized() {
-		if (!pinInitialized) {
-			ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
-		}
-	}
-
-	private void setCurveParameters(ECKey key) {
-		key.setFieldFP(Secp256k1.P, (short) 0, (short) Secp256k1.P.length);
-		key.setA(Secp256k1.A, (short) 0, (short) Secp256k1.A.length);
-		key.setB(Secp256k1.B, (short) 0, (short) Secp256k1.B.length);
-		key.setG(Secp256k1.G, (short) 0, (short) Secp256k1.G.length);
-		key.setR(Secp256k1.N, (short) 0, (short) Secp256k1.N.length);
-		key.setK((short) 1);
-	}
+    private void setCurveParameters(ECKey key) {
+        key.setFieldFP(Secp256k1.P, (short) 0, (short) Secp256k1.P.length);
+        key.setA(Secp256k1.A, (short) 0, (short) Secp256k1.A.length);
+        key.setB(Secp256k1.B, (short) 0, (short) Secp256k1.B.length);
+        key.setG(Secp256k1.G, (short) 0, (short) Secp256k1.G.length);
+        key.setR(Secp256k1.N, (short) 0, (short) Secp256k1.N.length);
+        key.setK((short) 1);
+    }
 }
