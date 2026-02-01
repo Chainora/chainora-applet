@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 Chainora is a JavaCard wallet applet for Ethereum. It consists of two modules:
+
 - **applet**: The JavaCard applet (`com.chainora.wallet.ChainoraWallet`) that stores secp256k1 keys and signs transactions on-card
 - **client**: A desktop Java client that communicates with the card and broadcasts Ethereum transactions
 
@@ -37,6 +38,16 @@ Chainora is a JavaCard wallet applet for Ethereum. It consists of two modules:
 - Target JavaCard version: 3.0.5u3 (JC305u3)
 - Minimum Java version: 8-u271
 
+## JavaCard SDK 3.0.5 Documentation Resources
+
+**Official API References:**
+
+- [OwnerPIN Class (JavaCard 3.0.5 API)](https://docs.oracle.com/cd/E59935_01/api/javacard/framework/OwnerPIN.html) - PIN management with try counter and validated flag
+- [APDU Class (JavaCard 3.0.5 API)](https://docs.oracle.com/cd/E59935_01/api/javacard/framework/APDU.html) - APDU command handling
+- [ISO7816 Interface (JavaCard 3.0.5 API)](https://docs.oracle.com/cd/E59935_01/api/javacard/framework/ISO7816.html) - ISO7816 constants (SW codes)
+- [Signature Class (JavaCard 3.0.5 API)](https://docs.oracle.com/cd/E59935_01/api/javacard/security/Signature.html) - Cryptographic signatures
+- [ECPrivateKey Interface (JavaCard 3.0.5 API)](https://docs.oracle.com/cd/E59935_01/api/javacard/security/ECPrivateKey.html) - EC private key operations
+
 ## Architecture
 
 ### Applet (`applet/src/main/java/com/chainora/wallet/`)
@@ -44,43 +55,50 @@ Chainora is a JavaCard wallet applet for Ethereum. It consists of two modules:
 The applet has been refactored to follow SOLID principles:
 
 **Core Classes (Orchestration)**
+
 - `ChainoraWallet.java`: Main applet entry point, handles applet lifecycle and command dispatching
 
 **Abstractions (Dependency Inversion)**
+
 - `CommandHandler.java`: Interface for command handlers; enables extensibility
 
 **Command Dispatcher (Open-Closed Principle)**
+
 - `CommandDispatcher.java`: Routes APDU commands to handlers via registry pattern; new commands = new handlers, no modification needed
 
 **Command Handlers (Single Responsibility Principle)**
+
 - `PinCommandHandler.java`: Handles all PIN operations (INS 0x10-0x14)
 - `KeyCommandHandler.java`: Handles key pair generation and public key retrieval (INS 0x20-0x21)
 - `SignCommandHandler.java`: Handles hash signing (INS 0x22)
 
 **Utilities (DRY Principle)**
+
 - `PinValidator.java`: Centralized PIN validation logic (eliminates duplication)
 - `ApduUtils.java`: Common APDU utility methods for data reception/sending
 
 **Data Classes (Unchanged)**
+
 - `Secp256k1.java`: secp256k1 curve parameters
 - `Configuration.java`: PIN limits, key length constants
 
 **APDU Protocol**
 
-| INS | Function | Data | Response |
-|-----|----------|------|----------|
-| 0x10 | INIT_PIN | PIN bytes | SW=0x9000 or 0x6985 |
-| 0x11 | VERIFY_PIN | PIN bytes | SW=0x9000 or 0x6982/0x6983 |
-| 0x12 | UPDATE_PIN | [curLen:1][curPIN][newPIN] | SW=0x9000 or 0x6982 |
-| 0x13 | RESET_PIN | - | SW=0x9000 or 0x6982 |
-| 0x14 | IS_PIN_INITIALIZED | - | 1 byte (0/1) + SW=0x9000 |
-| 0x20 | GEN_KEY_PAIR | - | SW=0x9000 |
-| 0x21 | GET_PUBLIC_KEY | - | 65 bytes + SW=0x9000 |
-| 0x22 | SIGN_HASH | 32-byte hash (Keccak256 pre-computed) | DER signature (Low-S) + SW=0x9000 |
+| INS  | Function           | Data                                  | Response                          |
+| ---- | ------------------ | ------------------------------------- | --------------------------------- |
+| 0x10 | INIT_PIN           | PIN bytes                             | SW=0x9000 or 0x6985               |
+| 0x11 | VERIFY_PIN         | PIN bytes                             | SW=0x9000 or 0x6982/0x6983        |
+| 0x12 | UPDATE_PIN         | [curLen:1][curPIN][newPIN]            | SW=0x9000 or 0x6982               |
+| 0x13 | RESET_PIN          | -                                     | SW=0x9000 or 0x6982               |
+| 0x14 | IS_PIN_INITIALIZED | -                                     | 1 byte (0/1) + SW=0x9000          |
+| 0x20 | GEN_KEY_PAIR       | -                                     | SW=0x9000                         |
+| 0x21 | GET_PUBLIC_KEY     | -                                     | 65 bytes + SW=0x9000              |
+| 0x22 | SIGN_HASH          | 32-byte hash (Keccak256 pre-computed) | DER signature (Low-S) + SW=0x9000 |
 
 All operations except INIT_PIN and IS_PIN_INITIALIZED require PIN validation.
 
 **Security Updates (2025-02):**
+
 - RESET_PIN (0x13) now requires PIN validation - returns SW=0x6982 if PIN not validated
 - UPDATE_PIN (0x12) now requires current PIN verification - returns SW=0x6982 if wrong PIN
 - Signatures are Low-S normalized to prevent transaction malleability
@@ -100,6 +118,7 @@ All operations except INIT_PIN and IS_PIN_INITIALIZED require PIN validation.
 ## Key Files
 
 ### Applet Files
+
 - `ChainoraWallet.java`: Main applet class (orchestration only)
 - `CommandHandler.java`: Interface for command handlers
 - `CommandDispatcher.java`: Routes INS to handlers via registry
