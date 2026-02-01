@@ -106,33 +106,36 @@ CLA: 0x80
 INS: 0x12
 P1:  0x00
 P2:  0x00
-Lc:  [độ dài PIN mới]
-Data: [PIN mới bytes]
+Lc:  [1 + độ dài PIN cũ + độ dài PIN mới]
+Data: [curPinLen:1][curPin][newPin]
 ```
 
 **Tham số**:
 
-- `Lc`: Độ dài của PIN mới
-- `Data`: Mã PIN mới
+- `Lc`: Tổng độ dài = 1 (cho curPinLen) + độ dài PIN cũ + độ dài PIN mới
+- `Data[0]`: Độ dài PIN hiện tại (1 byte)
+- `Data[1..curPinLen]`: PIN hiện tại
+- `Data[curPinLen+1..]`: PIN mới
 
 **Ví dụ**:
 
 ```
-// Cập nhật PIN mới = "654321"
-Command: 80 12 00 00 06 36 35 34 33 32 31
+// Đổi PIN từ "123456" sang "654321"
+// curPinLen=6, curPin="123456", newPin="654321"
+Command: 80 12 00 00 0E 06 31 32 33 34 35 36 36 35 34 33 32 31
 ```
 
 **Response codes**:
 
 - `0x9000` (SW_NO_ERROR): Cập nhật PIN thành công
 - `0x6985` (SW_CONDITIONS_NOT_SATISFIED): PIN chưa được khởi tạo
-- `0x6982` (SW_SECURITY_STATUS_NOT_SATISFIED): Chưa xác thực PIN
+- `0x6982` (SW_SECURITY_STATUS_NOT_SATISFIED): PIN hiện tại không đúng hoặc chưa xác thực
 
 ---
 
 ### 1.4. RESET_PIN - Reset PIN
 
-**Mô tả**: Xóa PIN và reset trạng thái khởi tạo. Sau khi reset, cần phải khởi tạo PIN lại.
+**Mô tả**: Xóa PIN và reset trạng thái khởi tạo. Sau khi reset, cần phải khởi tạo PIN lại. Yêu cầu đã xác thực PIN trước đó.
 
 **Command**:
 
@@ -155,6 +158,7 @@ Command: 80 13 00 00 00
 **Response codes**:
 
 - `0x9000` (SW_NO_ERROR): Reset PIN thành công
+- `0x6982` (SW_SECURITY_STATUS_NOT_SATISFIED): Chưa xác thực PIN
 
 ---
 
@@ -258,9 +262,9 @@ Command: 80 21 00 00 00 00
 
 ---
 
-### 2.3. SIGN_HASH - Ký hash (Coming soon)
+### 2.3. SIGN_HASH - Ký hash
 
-**Mô tả**: Ký một hash data bằng private key. Chức năng này đang được phát triển.
+**Mô tả**: Ký một hash data bằng private key. Signature được Low-S normalized để ngăn chặn transaction malleability.
 
 **Command**:
 
@@ -276,7 +280,7 @@ Le:  0x00
 
 **Tham số**:
 
-- `Data`: Hash 32 bytes cần ký (thường là SHA-256 hash của transaction)
+- `Data`: Hash 32 bytes cần ký (thường là Keccak-256 hash của transaction, đã được tính toán sẵn)
 
 **Ví dụ**:
 
@@ -285,12 +289,18 @@ Le:  0x00
 Command: 80 22 00 00 20 [32 bytes hash] 00
 ```
 
-**Response codes** (dự kiến):
+**Response**:
 
-- `0x9000` (SW_NO_ERROR): Ký thành công, trả về signature
+- Data: DER-encoded ECDSA signature (Low-S normalized)
+  - Format: 0x30 [totalLen] 0x02 [rLen] [r...] 0x02 [sLen] [s...]
+  - s <= n/2 để ngăn chặn transaction malleability
+- Status: `0x9000`
+
+**Response codes**:
+
+- `0x9000` (SW_NO_ERROR): Ký thành công
 - `0x6985` (SW_CONDITIONS_NOT_SATISFIED): PIN chưa được khởi tạo hoặc chưa sinh khóa
 - `0x6982` (SW_SECURITY_STATUS_NOT_SATISFIED): Chưa xác thực PIN
-- `0x6D00` (SW_INS_NOT_SUPPORTED): Chức năng chưa được triển khai
 
 ---
 
@@ -324,7 +334,7 @@ Command: 80 22 00 00 20 [32 bytes hash] 00
 
 ```
 1. VERIFY_PIN            -> Xác thực PIN
-2. SIGN_HASH             -> Ký hash của transaction (coming soon)
+2. SIGN_HASH             -> Ký hash của transaction
 ```
 
 ### 4.3. Đổi PIN
@@ -348,13 +358,13 @@ Command: 80 22 00 00 20 [32 bytes hash] 00
 ## 5. Lưu ý bảo mật
 
 1. **PIN Security**:
-
    - PIN chỉ có thể nhập sai tối đa 3 lần (Configuration.PIN_TRY_LIMIT)
    - Sau 3 lần sai, thẻ sẽ bị khóa (SW_AUTHENTICATION_METHOD_BLOCKED)
    - Cần RESET_PIN để mở khóa
+   - UPDATE_PIN yêu cầu xác thực PIN hiện tại trước khi đổi
+   - RESET_PIN yêu cầu đã xác thực PIN trước đó
 
 2. **Key Protection**:
-
    - Private key không bao giờ được xuất ra ngoài thẻ
    - Mọi thao tác với private key đều yêu cầu xác thực PIN
    - Public key chỉ có thể đọc sau khi xác thực PIN
@@ -363,10 +373,14 @@ Command: 80 22 00 00 20 [32 bytes hash] 00
    - Xác thực PIN có hiệu lực trong phiên làm việc hiện tại
    - Sau khi ngắt kết nối hoặc select applet khác, cần xác thực lại PIN
 
+4. **Transaction Malleability Protection**:
+   - Signature được Low-S normalized (s <= n/2) trước khi trả về
+   - Ngăn chặn việc tạo nhiều signature hợp lệ từ cùng một transaction
+
 ---
 
 ## 6. Hỗ trợ
 
-Nếu có vấn đề khi tích hợp, vui lòng liên hệ team backend hoặc tạo issue trên repository.
+Nếu có vấn đề khi tích hợp, vui lòng liên hệ team applet hoặc tạo issue trên repository.
 
 **Repository**: https://github.com/Chainora/chainora-applet
