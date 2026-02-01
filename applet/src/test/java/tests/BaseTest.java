@@ -14,8 +14,8 @@ import com.chainora.wallet.ChainoraWallet;
 import java.util.ArrayList;
 
 /**
- * Base Test class.
- * Note: If simulator cannot be started try adding "-noverify" JVM parameter
+ * Base Test class for Chainora applet.
+ * Tests run on physical card only - simulator cannot use ECC with secp256k1 curve.
  *
  * @author Petr Svenda, Dusan Klinec (ph4r05)
  */

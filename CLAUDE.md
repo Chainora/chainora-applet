@@ -14,7 +14,7 @@ Chainora is a JavaCard wallet applet for Ethereum. It consists of two modules:
 # Build the JavaCard CAP file
 ./gradlew :applet:buildJavaCard --info --rerun-tasks
 
-# Install applet on a physical card
+# Install applet on a physical card (also builds)
 ./gradlew :applet:installJavaCard --info --rerun-tasks
 
 # List installed applets on card
@@ -24,7 +24,11 @@ Chainora is a JavaCard wallet applet for Ethereum. It consists of two modules:
 ./gradlew :client:run
 
 # Run applet unit tests
-./gradlew :applet:test --info --rerun-tasks
+# IMPORTANT: Tests MUST run on physical card - simulator cannot use ECC with secp256k1 curve
+# IMPORTANT: State on physical card is NOT reset between tests
+# - pinInitialized remains true until applet is reinstalled
+# - Always reinstall applet before running tests
+./gradlew :applet:installJavaCard --info --rerun-tasks && ./gradlew :applet:test --info --rerun-tasks
 ```
 
 ## Applet Configuration
@@ -67,14 +71,21 @@ The applet has been refactored to follow SOLID principles:
 |-----|----------|------|----------|
 | 0x10 | INIT_PIN | PIN bytes | SW=0x9000 or 0x6985 |
 | 0x11 | VERIFY_PIN | PIN bytes | SW=0x9000 or 0x6982/0x6983 |
-| 0x12 | UPDATE_PIN | New PIN | SW=0x9000 |
-| 0x13 | RESET_PIN | - | SW=0x9000 |
+| 0x12 | UPDATE_PIN | [curLen:1][curPIN][newPIN] | SW=0x9000 or 0x6982 |
+| 0x13 | RESET_PIN | - | SW=0x9000 or 0x6982 |
 | 0x14 | IS_PIN_INITIALIZED | - | 1 byte (0/1) + SW=0x9000 |
 | 0x20 | GEN_KEY_PAIR | - | SW=0x9000 |
 | 0x21 | GET_PUBLIC_KEY | - | 65 bytes + SW=0x9000 |
-| 0x22 | SIGN_HASH | 32-byte hash | DER signature + SW=0x9000 |
+| 0x22 | SIGN_HASH | 32-byte hash (Keccak256 pre-computed) | DER signature (Low-S) + SW=0x9000 |
 
 All operations except INIT_PIN and IS_PIN_INITIALIZED require PIN validation.
+
+**Security Updates (2025-02):**
+- RESET_PIN (0x13) now requires PIN validation - returns SW=0x6982 if PIN not validated
+- UPDATE_PIN (0x12) now requires current PIN verification - returns SW=0x6982 if wrong PIN
+- Signatures are Low-S normalized to prevent transaction malleability
+
+**Note**: The applet uses `Signature.signPreComputedHash()` for signing. JavaCard's native Signature doesn't support Keccak256, so the client hashes messages with Keccak256 before sending the 32-byte hash to the card. The applet signs the pre-computed hash using ECDSA.
 
 ### Client (`client/src/main/java/`)
 

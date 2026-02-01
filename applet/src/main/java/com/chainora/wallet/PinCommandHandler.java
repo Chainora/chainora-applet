@@ -73,12 +73,25 @@ public class PinCommandHandler implements CommandHandler {
     private void updatePin(APDU apdu) {
         pinValidator.ensureValidated();
         short bytesRead = ApduUtils.receiveData(apdu);
-        pinValidator.validatePinLength(bytesRead);
         byte[] buffer = apdu.getBuffer();
-        pinValidator.updatePin(buffer, ISO7816.OFFSET_CDATA, (byte) bytesRead);
+
+        // Format: [currentPINLen:1][currentPIN][newPIN]
+        byte currentPinLen = buffer[ISO7816.OFFSET_CDATA];
+
+        // Validate current PIN before updating
+        if (!pinValidator.checkPin(buffer, (short) (ISO7816.OFFSET_CDATA + 1), currentPinLen)) {
+            ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
+        }
+
+        // New PIN starts after current PIN length and current PIN
+        short newPinOffset = (short) (ISO7816.OFFSET_CDATA + 1 + currentPinLen);
+        byte newPinLen = (byte) (bytesRead - 1 - currentPinLen);
+        pinValidator.validatePinLength(newPinLen);
+        pinValidator.updatePin(buffer, newPinOffset, newPinLen);
     }
 
     private void resetPin() {
+        pinValidator.ensureValidated();
         pinValidator.reset();
     }
 
