@@ -1,8 +1,8 @@
 package com.chainora.client.apdu;
 
-import cz.muni.fi.crocs.rcard.client.CardManager;
-
 import javax.smartcardio.CardException;
+
+import cz.muni.fi.crocs.rcard.client.CardManager;
 
 /**
  * Facade providing a unified interface to all card operations.
@@ -12,11 +12,13 @@ public class CardClient {
     private final PinApdu pinApdu;
     private final KeyApdu keyApdu;
     private final SignApdu signApdu;
+    private final BackupApdu backupApdu;
 
     public CardClient(CardManager cardManager) {
         this.pinApdu = new PinApdu(cardManager);
         this.keyApdu = new KeyApdu(cardManager);
         this.signApdu = new SignApdu(cardManager);
+        this.backupApdu = new BackupApdu(cardManager);
     }
 
     /**
@@ -141,5 +143,68 @@ public class CardClient {
      */
     public void updatePin(byte[] currentPin, byte[] newPin) throws CardException {
         pinApdu.update(currentPin, newPin);
+    }
+
+    /**
+     * Gets the factory CSR payload for device certificate provisioning.
+     */
+    public byte[] getBackupFactoryCsr() throws CardException {
+        return backupApdu.getFactoryCsr();
+    }
+
+    /**
+     * Stores the factory-signed device certificate.
+     */
+    public void setBackupDeviceCertificate(byte[] certificate) throws CardException {
+        backupApdu.setDeviceCertificate(certificate);
+    }
+
+    /**
+     * Reads the current device certificate from card storage.
+     */
+    public byte[] getBackupDeviceCertificate() throws CardException {
+        return backupApdu.getDeviceCertificate();
+    }
+
+    /**
+     * Starts a new backup link proof session and returns attestation payload.
+     */
+    public byte[] startBackupLinkProof() throws CardException {
+        return backupApdu.startLinkProof();
+    }
+
+    /**
+     * Loads and verifies the peer device certificate.
+     */
+    public void loadBackupPeerCertificate(byte[] peerCertificate) throws CardException {
+        backupApdu.loadPeerCertificate(peerCertificate);
+    }
+
+    /**
+     * Loads and verifies the peer link proof.
+     */
+    public void loadBackupPeerLinkProof(byte[] peerLinkProof) throws CardException {
+        backupApdu.loadPeerLinkProof(peerLinkProof);
+    }
+
+    /**
+     * Clears backup session state on the card.
+     */
+    public void clearBackupLinkState() throws CardException {
+        backupApdu.clearLinkState();
+    }
+
+    /**
+     * Exports encrypted wallet backup envelope.
+     */
+    public byte[] exportBackupEnvelope() throws CardException {
+        return backupApdu.exportBackupEnvelope();
+    }
+
+    /**
+     * Imports encrypted wallet backup envelope.
+     */
+    public void importBackupEnvelope(byte[] backupEnvelope) throws CardException {
+        backupApdu.importBackupEnvelope(backupEnvelope);
     }
 }

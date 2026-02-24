@@ -279,6 +279,67 @@ public class AppletTest extends BaseTest {
     // ==================== SECURITY TESTS ====================
 
     /**
+     * Test that GET_FACTORY_CSR returns expected format.
+     */
+    @Test
+    public void backupGetFactoryCsr_ReturnsExpectedFormat() throws Exception {
+        final CardManager cardManager = connect();
+
+        final CommandAPDU csrCmd = new CommandAPDU(0x00, 0x30, 0x10, 0x00);
+        final ResponseAPDU csrResponse = cardManager.transmit(csrCmd);
+        Assert.assertNotNull(csrResponse);
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) csrResponse.getSW());
+        Assert.assertEquals(82, csrResponse.getData().length);
+        Assert.assertEquals(0x01, csrResponse.getData()[0]);
+        Assert.assertEquals(0x04, csrResponse.getData()[17]);
+    }
+
+    /**
+     * Test that BACKUP_SESSION with unsupported P1 returns SW_INCORRECT_P1P2.
+     */
+    @Test
+    public void backupSession_UnknownP1_ReturnsIncorrectP1P2() throws Exception {
+        final CardManager cardManager = connect();
+
+        final CommandAPDU cmd = new CommandAPDU(0x00, 0x30, 0x7F, 0x00);
+        final ResponseAPDU response = cardManager.transmit(cmd);
+        Assert.assertNotNull(response);
+        Assert.assertEquals(ISO7816.SW_INCORRECT_P1P2, (short) response.getSW());
+    }
+
+    /**
+     * Test that LOAD_PEER_CERT rejects malformed certificate payload.
+     */
+    @Test
+    public void backupLoadPeerCert_InvalidPayload_ReturnsDataInvalid() throws Exception {
+        final CardManager cardManager = connect();
+
+        final byte[] invalidCert = new byte[] { 0x01, 0x02, 0x03 };
+        final CommandAPDU cmd = new CommandAPDU(0x00, 0x30, 0x02, 0x00, invalidCert);
+        final ResponseAPDU response = cardManager.transmit(cmd);
+        Assert.assertNotNull(response);
+        Assert.assertEquals(ISO7816.SW_DATA_INVALID, (short) response.getSW());
+    }
+
+    /**
+     * Test that LOAD_PEER_LINK_PROOF requires peer certificate and local link state.
+     */
+    @Test
+    public void backupLoadPeerLinkProof_WithoutPeerCert_ReturnsConditionsNotSatisfied() throws Exception {
+        final CardManager cardManager = connect();
+
+        final CommandAPDU clearStateCmd = new CommandAPDU(0x00, 0x30, 0x04, 0x00);
+        final ResponseAPDU clearStateResponse = cardManager.transmit(clearStateCmd);
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) clearStateResponse.getSW());
+
+        final byte[] fakeProof = new byte[] { 0x01 };
+        final CommandAPDU cmd = new CommandAPDU(0x00, 0x30, 0x03, 0x00, fakeProof);
+        final ResponseAPDU response = cardManager.transmit(cmd);
+        Assert.assertNotNull(response);
+        Assert.assertEquals(ISO7816.SW_CONDITIONS_NOT_SATISFIED, (short) response.getSW());
+    }
+
+    /**
      * Test that RESET_PIN without PIN validation fails with SW_SECURITY_STATUS_NOT_SATISFIED.
      */
     @Test

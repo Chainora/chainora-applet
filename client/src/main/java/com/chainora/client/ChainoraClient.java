@@ -2,6 +2,11 @@ package com.chainora.client;
 
 import java.util.Scanner;
 
+import cz.muni.fi.crocs.rcard.client.CardManager;
+import cz.muni.fi.crocs.rcard.client.CardType;
+import cz.muni.fi.crocs.rcard.client.RunConfig;
+import cz.muni.fi.crocs.rcard.client.Util;
+
 import com.chainora.client.apdu.CardClient;
 import com.chainora.client.ui.ConsoleUI;
 import com.chainora.client.wallet.BalanceService;
@@ -9,11 +14,6 @@ import com.chainora.client.wallet.ConfigService;
 import com.chainora.client.wallet.TransactionService;
 import com.chainora.client.wallet.WalletService;
 import com.chainora.client.wallet.crypto.SignatureBuilder;
-
-import cz.muni.fi.crocs.rcard.client.CardManager;
-import cz.muni.fi.crocs.rcard.client.CardType;
-import cz.muni.fi.crocs.rcard.client.RunConfig;
-import cz.muni.fi.crocs.rcard.client.Util;
 
 /**
  * Main entry point for the Chainora wallet CLI.
@@ -42,7 +42,7 @@ public class ChainoraClient {
             ConfigService configService = new ConfigService(balanceService, transactionService);
             CardClient cardClient = new CardClient(cardManager);
             WalletService walletService = new WalletService(
-                    cardClient, balanceService, transactionService,
+                    cardClient, cardManager, config, balanceService, transactionService,
                     signatureBuilder, configService);
             ConsoleUI ui = new ConsoleUI(scanner);
 
@@ -88,9 +88,12 @@ public class ChainoraClient {
                     handleUpdatePin(ui, walletService);
                     break;
                 case 5:
-                    handleSettings(ui, configService);
+                    handleBackupWallet(ui, walletService);
                     break;
                 case 6:
+                    handleSettings(ui, configService);
+                    break;
+                case 7:
                     exit = true;
                     break;
             }
@@ -139,6 +142,17 @@ public class ChainoraClient {
             return;
         }
         walletService.updatePin(ui);
+        ui.pause();
+    }
+
+    private static void handleBackupWallet(ConsoleUI ui, WalletService walletService) {
+        ui.showBanner("BACKUP WALLET");
+        if (!walletService.isWalletReady()) {
+            ui.showError("Source wallet is not initialized. Please initialize first.");
+            ui.pause();
+            return;
+        }
+        walletService.backupWallet(ui);
         ui.pause();
     }
 

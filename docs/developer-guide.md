@@ -50,6 +50,7 @@
 - **Quản lý PIN**: Khởi tạo, xác thực, cập nhật, reset PIN
 - **Quản lý khóa**: Sinh cặp khóa EC secp256k1, lấy public key
 - **Ký giao dịch**: Ký hash giao dịch với Low-S normalization
+- **Backup key bảo mật**: Mutual authentication bằng certificate chain + ECDH encrypted transfer
 - **Bảo mật**: Private key không rời khỏi thẻ, PIN-based authentication
 
 ---
@@ -69,6 +70,7 @@ chainora-applet/
 │   │       ├── PinCommandHandler.java   # PIN operations
 │   │       ├── KeyCommandHandler.java   # Key operations
 │   │       ├── SignCommandHandler.java  # Signing
+│   │       ├── BackupCommandHandler.java # Provisioning + backup flow
 │   │       ├── PinValidator.java        # PIN validation
 │   │       ├── ApduUtils.java           # APDU utilities
 │   │       ├── Secp256k1.java           # Curve params
@@ -111,6 +113,7 @@ chainora-applet/
 | `PinCommandHandler.java` | 0x10-0x14 | Tất cả thao tác PIN |
 | `KeyCommandHandler.java` | 0x20-0x21 | Sinh khóa và lấy public key |
 | `SignCommandHandler.java` | 0x22 | Ký hash |
+| `BackupCommandHandler.java` | 0x30-0x32 | Provisioning cert, mutual auth, ECDH backup |
 
 **Utilities (DRY Principle)**
 
@@ -303,6 +306,9 @@ public class Secp256k1 {
 | 0x20 | GEN_KEY_PAIR | Đã validate | - | SW only |
 | 0x21 | GET_PUBLIC_KEY | Đã validate | - | 65 bytes + SW |
 | 0x22 | SIGN_HASH | Đã validate | [32-byte hash] | DER sig + SW |
+| 0x30 | BACKUP_SESSION | Tuỳ subcommand | Subcommand payload | Data/SW |
+| 0x31 | BACKUP_EXPORT | Đã validate | - | Backup envelope + SW |
+| 0x32 | BACKUP_IMPORT | Đã validate | Backup envelope | SW only |
 
 ### 4.3. Mã Response phổ biến
 
@@ -312,7 +318,9 @@ public class Secp256k1 {
 | 0x6982 | SW_SECURITY_STATUS_NOT_SATISFIED | Chưa xác thực/PIN sai |
 | 0x6983 | SW_AUTHENTICATION_METHOD_BLOCKED | PIN bị khóa |
 | 0x6985 | SW_CONDITIONS_NOT_SATISFIED | Điều kiện không thỏa mãn |
+| 0x6984 | SW_DATA_INVALID | Payload backup/cert không hợp lệ |
 | 0x6A86 | SW_INCORRECT_P1P2 | Tham số P1/P2 lỗi |
+| 0x6A83 | SW_RECORD_NOT_FOUND | Device cert chưa tồn tại |
 | 0x6D00 | SW_INS_NOT_SUPPORTED | Lệnh không hỗ trợ |
 | 0x6E00 | SW_CLA_NOT_SUPPORTED | CLA không hỗ trợ |
 
@@ -343,6 +351,12 @@ public class Secp256k1 {
 **Low-S Normalization**
 - Signature được normalize để `s <= n/2`
 - Ngăn chặn transaction malleability (tạo nhiều sig hợp lệ từ 1 transaction)
+
+**Certificate Chain + ECDH Backup**
+- Mỗi card có `deviceAuth` keypair riêng, cert được ký bởi root key của Chainora
+- Card chỉ tin peer sau khi verify: root -> peer cert -> peer link proof
+- Session key backup được dẫn xuất bằng ECDH từ link key ephemeral (per-session)
+- Private key transfer luôn ở dạng encrypted envelope; app host không thấy plaintext key
 
 **PIN Protection**
 - Private key không thể access nếu chưa validate PIN

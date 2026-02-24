@@ -1,11 +1,12 @@
 package com.chainora.client.apdu;
 
-import com.chainora.client.ApduConstants;
-import cz.muni.fi.crocs.rcard.client.CardManager;
-
 import javax.smartcardio.CardException;
 import javax.smartcardio.CommandAPDU;
 import javax.smartcardio.ResponseAPDU;
+
+import cz.muni.fi.crocs.rcard.client.CardManager;
+
+import com.chainora.client.ApduConstants;
 
 /**
  * Base class for APDU operations. Provides common functionality for
@@ -27,9 +28,23 @@ public abstract class BaseApdu {
      * @throws CardException if communication with the card fails
      */
     protected ResponseAPDU transmit(byte ins, byte[] data) throws CardException {
+        return transmit(ins, (byte) 0x00, (byte) 0x00, data);
+    }
+
+    /**
+     * Transmits an APDU command to the card with explicit P1/P2.
+     *
+     * @param ins the instruction byte
+     * @param p1 the P1 parameter byte
+     * @param p2 the P2 parameter byte
+     * @param data the command data, or null if no data
+     * @return the response from the card
+     * @throws CardException if communication with the card fails
+     */
+    protected ResponseAPDU transmit(byte ins, byte p1, byte p2, byte[] data) throws CardException {
         CommandAPDU command = data == null
-                ? new CommandAPDU(ApduConstants.CLA, ins & 0xFF, 0x00, 0x00)
-                : new CommandAPDU(ApduConstants.CLA, ins & 0xFF, 0x00, 0x00, data);
+                ? new CommandAPDU(ApduConstants.CLA, ins & 0xFF, p1 & 0xFF, p2 & 0xFF)
+                : new CommandAPDU(ApduConstants.CLA, ins & 0xFF, p1 & 0xFF, p2 & 0xFF, data);
         return cardManager.transmit(command);
     }
 

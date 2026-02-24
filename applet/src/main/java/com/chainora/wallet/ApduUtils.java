@@ -23,10 +23,23 @@ public final class ApduUtils {
      */
     public static short receiveData(APDU apdu) {
         short bytesRead = apdu.setIncomingAndReceive();
-        if (bytesRead <= 0) {
+        short totalLength = bytesRead;
+        short incomingLength = apdu.getIncomingLength();
+        short offset = (short) (ISO7816.OFFSET_CDATA + bytesRead);
+
+        while (totalLength < incomingLength) {
+            bytesRead = apdu.receiveBytes(offset);
+            if (bytesRead <= 0) {
+                break;
+            }
+            totalLength += bytesRead;
+            offset += bytesRead;
+        }
+
+        if (totalLength <= 0) {
             ISOException.throwIt(SW_NO_DATA);
         }
-        return bytesRead;
+        return totalLength;
     }
 
     /**

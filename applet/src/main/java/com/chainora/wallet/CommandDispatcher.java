@@ -14,7 +14,7 @@ import javacard.framework.ISOException;
 public final class CommandDispatcher {
     private static final short SW_INS_NOT_SUPPORTED = ISO7816.SW_INS_NOT_SUPPORTED;
 
-    private static final byte MAX_HANDLERS = 8;
+    private static final byte MAX_HANDLERS = 16;
 
     private final CommandHandler[] handlers;
     private final byte[] instructionCodes;
@@ -75,6 +75,9 @@ public final class CommandDispatcher {
          * @return this builder for chaining
          */
         public CommandDispatcherBuilder register(byte ins, CommandHandler handler) {
+            if (handlerCount >= MAX_HANDLERS) {
+                ISOException.throwIt(ISO7816.SW_UNKNOWN);
+            }
             handlers[handlerCount] = handler;
             instructionCodes[handlerCount] = ins;
             handlerCount++;

@@ -123,6 +123,10 @@ Test behavior in this repo:
 - Validate APDU lengths/offsets before accessing buffers.
 - Avoid unnecessary allocations in APDU hot paths.
 - Keep curve and protocol constants centralized (`Configuration`, `Secp256k1`, etc.).
+- JavaCard converter compatibility rules (strict):
+  - Do not use `String` constants/literals in applet runtime code paths.
+  - Do not instantiate exceptions with string messages (e.g., `new IllegalStateException("...")`); use `ISOException.throwIt(...)` with SW codes.
+  - Ensure array indexes are `short`/`byte` in applet code; cast expressions explicitly when needed.
 
 ## 11) Error Handling
 Applet side:
@@ -147,3 +151,4 @@ Client side:
 - Prefer minimal diffs over broad refactors.
 - Run the narrowest relevant command first, then broader verification.
 - If hardware-dependent tests cannot run, clearly state what was validated and what was not.
+- For applet changes, always run JavaCard converter validation (`./gradlew :applet:buildJavaCard --info --rerun-tasks`) before finalizing.

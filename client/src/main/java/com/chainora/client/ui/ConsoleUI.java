@@ -240,11 +240,39 @@ public class ConsoleUI {
         System.out.println("2 - View Wallet");
         System.out.println("3 - Send ETH");
         System.out.println("4 - Update PIN");
-        System.out.println("5 - Settings");
-        System.out.println("6 - Exit");
+        System.out.println("5 - Backup Wallet Key");
+        System.out.println("6 - Settings");
+        System.out.println("7 - Exit");
         System.out.println("===============================================");
-        System.out.print("Enter 1-6: ");
-        return promptChoice(1, 6);
+        System.out.print("Enter 1-7: ");
+        return promptChoice(1, 7);
+    }
+
+    /**
+     * Prompts user to swap/insert a card and continue.
+     *
+     * @param message the card operation prompt
+     */
+    public void promptCardSwap(String message) {
+        System.out.println();
+        System.out.println(message);
+        System.out.print("Press Enter when ready...");
+        scanner.nextLine();
+    }
+
+    /**
+     * Prompts user to confirm one-time certificate provisioning.
+     *
+     * @param cardRole destination/source label
+     * @return true if user confirms provisioning
+     */
+    public boolean confirmDeviceProvisioning(String cardRole) {
+        System.out.println();
+        System.out.println("No device certificate found on " + cardRole + " card.");
+        System.out.println("Provisioning is one-time and writes a development certificate.");
+        System.out.print("Proceed with provisioning? (y/n): ");
+        String input = scanner.nextLine().trim().toLowerCase();
+        return "y".equals(input);
     }
 
     /**

@@ -5,34 +5,48 @@ import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.util.Arrays;
 
+import javax.smartcardio.CardException;
+
+import cz.muni.fi.crocs.rcard.client.CardManager;
+import cz.muni.fi.crocs.rcard.client.RunConfig;
+import org.web3j.crypto.RawTransaction;
+import org.web3j.crypto.Sign;
+
 import com.chainora.client.apdu.CardClient;
+import com.chainora.client.apdu.CardOperationException;
 import com.chainora.client.ui.ConsoleUI;
 import com.chainora.client.wallet.BalanceService.Provider;
 import com.chainora.client.wallet.TransactionService.Network;
+import com.chainora.client.wallet.crypto.BackupProvisioningService;
 import com.chainora.client.wallet.crypto.SignatureBuilder;
-
-import org.web3j.crypto.RawTransaction;
-import org.web3j.crypto.Sign;
 
 /**
  * Main wallet business logic service.
  * Orchestrates card operations, balance fetching, and transaction signing.
  */
 public class WalletService {
+    private static final int SW_RECORD_NOT_FOUND = 0x6A83;
+
     private final CardClient card;
+    private final CardManager cardManager;
+    private final RunConfig runConfig;
     private final BalanceService balanceService;
     private final TransactionService transactionService;
     private final SignatureBuilder signatureBuilder;
     private final ConfigService configService;
+    private final BackupProvisioningService backupProvisioningService;
 
-    public WalletService(CardClient card, BalanceService balanceService,
+    public WalletService(CardClient card, CardManager cardManager, RunConfig runConfig, BalanceService balanceService,
             TransactionService transactionService, SignatureBuilder signatureBuilder,
             ConfigService configService) {
         this.card = card;
+        this.cardManager = cardManager;
+        this.runConfig = runConfig;
         this.balanceService = balanceService;
         this.transactionService = transactionService;
         this.signatureBuilder = signatureBuilder;
         this.configService = configService;
+        this.backupProvisioningService = new BackupProvisioningService();
     }
 
     /**
@@ -112,6 +126,85 @@ public class WalletService {
         } catch (Exception e) {
             ui.showError("Failed to update PIN: " + e.getMessage());
         }
+    }
+
+    /**
+     * Backs up wallet key material from source card to destination card.
+     * Uses certificate-based mutual authentication + ECDH encrypted transfer.
+     */
+    public void backupWallet(ConsoleUI ui) {
+        try {
+            ui.showInfo("Starting Chainora secure backup flow...");
+
+            byte[] destinationPinFromInitialization = null;
+
+            ui.promptCardSwap("Insert destination backup card and press Enter.");
+            reconnectCard();
+            card.clearBackupLinkState();
+            destinationPinFromInitialization = ensureDestinationPinInitialized(ui);
+            byte[] destinationCert = ensureDeviceCertificateProvisioned(ui, "destination");
+            byte[] destinationLinkProof = card.startBackupLinkProof();
+
+            ui.promptCardSwap("Insert source card and press Enter.");
+            reconnectCard();
+            card.clearBackupLinkState();
+            ensurePinInitialized("source");
+            byte[] sourceCert = ensureDeviceCertificateProvisioned(ui, "source");
+            byte[] sourceLinkProof = card.startBackupLinkProof();
+            card.loadBackupPeerCertificate(destinationCert);
+            card.loadBackupPeerLinkProof(destinationLinkProof);
+
+            byte[] sourcePin = ui.promptPin4Digits("Enter source card PIN: ");
+            if (!card.verifyPin(sourcePin)) {
+                ui.showError("Invalid source PIN. Backup cancelled.");
+                return;
+            }
+
+            byte[] sourcePublicKey = card.getPublicKey();
+            byte[] backupEnvelope = card.exportBackupEnvelope();
+
+            ui.promptCardSwap("Reinsert destination backup card and press Enter.");
+            reconnectCard();
+            card.loadBackupPeerCertificate(sourceCert);
+            card.loadBackupPeerLinkProof(sourceLinkProof);
+
+            byte[] destinationPin = destinationPinFromInitialization != null
+                    ? destinationPinFromInitialization
+                    : ui.promptPin4Digits("Enter destination card PIN: ");
+            if (!card.verifyPin(destinationPin)) {
+                ui.showError("Invalid destination PIN. Backup cancelled.");
+                return;
+            }
+
+            card.importBackupEnvelope(backupEnvelope);
+            byte[] importedPublicKey = card.getPublicKey();
+            if (!isSamePublicKey(sourcePublicKey, importedPublicKey)) {
+                throw new IllegalStateException("Imported key does not match source key.");
+            }
+
+            card.clearBackupLinkState();
+            ui.showInfo("Backup completed successfully.");
+            ui.showInfo("Destination card now contains the same wallet key as source card.");
+        } catch (Exception e) {
+            ui.showError("Backup failed: " + e.getMessage());
+        }
+    }
+
+    private byte[] ensureDestinationPinInitialized(ConsoleUI ui) throws CardException {
+        if (card.isPinInitialized()) {
+            return null;
+        }
+
+        ui.showInfo("Destination card PIN is not initialized. Creating PIN now...");
+        byte[] newPin = ui.promptPin4Digits("Set destination card PIN (4 digits): ");
+        byte[] confirmPin = ui.promptPin4Digits("Confirm destination card PIN: ");
+        if (!Arrays.equals(newPin, confirmPin)) {
+            throw new IllegalStateException("Destination PINs do not match.");
+        }
+
+        card.initPin(newPin);
+        ui.showInfo("Destination PIN initialized.");
+        return newPin;
     }
 
     /**
@@ -199,6 +292,57 @@ public class WalletService {
             // Ignore
         }
         return null;
+    }
+
+    private void ensurePinInitialized(String cardRole) throws CardException {
+        if (!card.isPinInitialized()) {
+            throw new IllegalStateException("PIN is not initialized on " + cardRole + " card.");
+        }
+    }
+
+    private byte[] ensureDeviceCertificateProvisioned(ConsoleUI ui, String cardRole) throws CardException {
+        try {
+            return card.getBackupDeviceCertificate();
+        } catch (CardOperationException ex) {
+            if (ex.getSw() != SW_RECORD_NOT_FOUND) {
+                throw ex;
+            }
+
+            if (!ui.confirmDeviceProvisioning(cardRole)) {
+                throw new IllegalStateException("Provisioning declined for " + cardRole + " card.");
+            }
+
+            ui.showInfo("Running dev provisioning for " + cardRole + " card...");
+            ui.showInfo("Tip: set CHAINORA_ENABLE_DEV_PROVISIONING=1 before running client.");
+            byte[] csr = card.getBackupFactoryCsr();
+            byte[] certificate = backupProvisioningService.issueDeviceCertificate(csr);
+            card.setBackupDeviceCertificate(certificate);
+            ui.showInfo("Provisioning complete for " + cardRole + " card.");
+            return card.getBackupDeviceCertificate();
+        }
+    }
+
+    private void reconnectCard() throws CardException {
+        try {
+            cardManager.disconnect(false);
+        } catch (CardException ignored) {
+            // Card can already be disconnected during swap.
+        }
+        if (!cardManager.connect(runConfig)) {
+            throw new IllegalStateException("Cannot connect to selected card.");
+        }
+    }
+
+    private boolean isSamePublicKey(byte[] left, byte[] right) {
+        return Arrays.equals(normalizePublicKey(left), normalizePublicKey(right));
+    }
+
+    private byte[] normalizePublicKey(byte[] publicKey) {
+        if (publicKey == null || publicKey.length < 64) {
+            throw new IllegalArgumentException("Invalid public key");
+        }
+        int offset = publicKey.length == 65 ? 1 : 0;
+        return Arrays.copyOfRange(publicKey, offset, publicKey.length);
     }
 
     private String deriveAddress(byte[] publicKey) {
