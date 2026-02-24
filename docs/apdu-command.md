@@ -345,7 +345,7 @@ Command này dùng nhiều sub-command qua byte `P1`.
 #### P1 = `0x02` LOAD_PEER_CERT
 
 - Nạp certificate của card đối tác.
-- Card verify cert chain bằng hardcoded `CHAINORA_DEV_ROOT_PUBLIC_KEY`.
+- Card verify cert chain bằng hardcoded `CHAINORA_FACTORY_ROOT_PUBLIC_KEY`.
 
 #### P1 = `0x03` LOAD_PEER_LINK_PROOF
 

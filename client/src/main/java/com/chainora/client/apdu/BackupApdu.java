@@ -8,30 +8,12 @@ import cz.muni.fi.crocs.rcard.client.CardManager;
 import com.chainora.client.ApduConstants;
 
 /**
- * Handles backup and provisioning APDU commands (INS 0x30-0x32).
+ * Handles backup APDU commands (INS 0x30-0x32).
  */
 public class BackupApdu extends BaseApdu {
 
     public BackupApdu(CardManager cardManager) {
         super(cardManager);
-    }
-
-    public byte[] getFactoryCsr() throws CardException {
-        ResponseAPDU response = transmit(
-                ApduConstants.INS_BACKUP_SESSION,
-                ApduConstants.P1_GET_FACTORY_CSR,
-                (byte) 0x00,
-                null);
-        return requireData(response, "Failed to get factory CSR");
-    }
-
-    public void setDeviceCertificate(byte[] certificate) throws CardException {
-        ResponseAPDU response = transmit(
-                ApduConstants.INS_BACKUP_SESSION,
-                ApduConstants.P1_SET_DEVICE_CERT,
-                (byte) 0x00,
-                certificate);
-        ensureSuccess(response, "Failed to set device certificate");
     }
 
     public byte[] getDeviceCertificate() throws CardException {

@@ -103,3 +103,18 @@ javacard {
         }
     }      
 }
+
+tasks.register('provisionInstalledDeviceCertificate', JavaExec) {
+    group = 'Global platform tasks'
+    description = 'Provision factory device certificate on installed applet'
+    classpath = sourceSets.test.runtimeClasspath
+    main = 'tools.InstallCertificateProvisioner'
+}
+
+afterEvaluate {
+    Task installTask = tasks.findByName('installJavaCard')
+    if (installTask != null) {
+        installTask.dependsOn(tasks.named('testClasses'))
+        installTask.finalizedBy(tasks.named('provisionInstalledDeviceCertificate'))
+    }
+}

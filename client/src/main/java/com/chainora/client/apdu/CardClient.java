@@ -146,20 +146,6 @@ public class CardClient {
     }
 
     /**
-     * Gets the factory CSR payload for device certificate provisioning.
-     */
-    public byte[] getBackupFactoryCsr() throws CardException {
-        return backupApdu.getFactoryCsr();
-    }
-
-    /**
-     * Stores the factory-signed device certificate.
-     */
-    public void setBackupDeviceCertificate(byte[] certificate) throws CardException {
-        backupApdu.setDeviceCertificate(certificate);
-    }
-
-    /**
      * Reads the current device certificate from card storage.
      */
     public byte[] getBackupDeviceCertificate() throws CardException {

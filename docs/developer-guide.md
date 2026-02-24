@@ -385,6 +385,8 @@ cd chainora-applet
 
 # Install lên thẻ (yêu cầu thẻ kết nối qua card reader)
 ./gradlew :applet:installJavaCard --info --rerun-tasks
+
+# Lưu ý: task install sẽ tự động provision device certificate ngay sau khi cài applet
 ```
 
 ### 6.2. Chạy tests

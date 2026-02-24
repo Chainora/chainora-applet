@@ -41,6 +41,8 @@ Typical output:
 ./gradlew :applet:installJavaCard --info --rerun-tasks
 ```
 
+This task now installs the applet and automatically provisions the device certificate.
+
 Or inspect already installed applets:
 
 ```bash

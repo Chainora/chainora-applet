@@ -228,20 +228,37 @@ public class ConsoleUI {
     }
 
     /**
-     * Shows a setup prompt for the main menu.
+     * Shows the guest menu before login.
      *
      * @return the selected option
      */
-    public int promptMainMenu() {
+    public int promptGuestMenu() {
         System.out.println();
         System.out.println("CHAINORA WALLET");
         System.out.println("===============================================");
-        System.out.println("1 - Init/Setup Wallet");
-        System.out.println("2 - View Wallet");
-        System.out.println("3 - Send ETH");
-        System.out.println("4 - Update PIN");
-        System.out.println("5 - Backup Wallet Key");
-        System.out.println("6 - Settings");
+        System.out.println("1 - Login");
+        System.out.println("2 - Activate Wallet");
+        System.out.println("3 - Exit");
+        System.out.println("===============================================");
+        System.out.print("Enter 1-3: ");
+        return promptChoice(1, 3);
+    }
+
+    /**
+     * Shows the authenticated wallet menu.
+     *
+     * @return the selected option
+     */
+    public int promptWalletMenu() {
+        System.out.println();
+        System.out.println("CHAINORA WALLET");
+        System.out.println("===============================================");
+        System.out.println("1 - View Wallet");
+        System.out.println("2 - Send ETH");
+        System.out.println("3 - Update PIN");
+        System.out.println("4 - Backup Wallet Key");
+        System.out.println("5 - Settings");
+        System.out.println("6 - Logout");
         System.out.println("7 - Exit");
         System.out.println("===============================================");
         System.out.print("Enter 1-7: ");
@@ -258,21 +275,6 @@ public class ConsoleUI {
         System.out.println(message);
         System.out.print("Press Enter when ready...");
         scanner.nextLine();
-    }
-
-    /**
-     * Prompts user to confirm one-time certificate provisioning.
-     *
-     * @param cardRole destination/source label
-     * @return true if user confirms provisioning
-     */
-    public boolean confirmDeviceProvisioning(String cardRole) {
-        System.out.println();
-        System.out.println("No device certificate found on " + cardRole + " card.");
-        System.out.println("Provisioning is one-time and writes a development certificate.");
-        System.out.print("Proceed with provisioning? (y/n): ");
-        String input = scanner.nextLine().trim().toLowerCase();
-        return "y".equals(input);
     }
 
     /**

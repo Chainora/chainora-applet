@@ -17,7 +17,6 @@ import com.chainora.client.apdu.CardOperationException;
 import com.chainora.client.ui.ConsoleUI;
 import com.chainora.client.wallet.BalanceService.Provider;
 import com.chainora.client.wallet.TransactionService.Network;
-import com.chainora.client.wallet.crypto.BackupProvisioningService;
 import com.chainora.client.wallet.crypto.SignatureBuilder;
 
 /**
@@ -26,6 +25,8 @@ import com.chainora.client.wallet.crypto.SignatureBuilder;
  */
 public class WalletService {
     private static final int SW_RECORD_NOT_FOUND = 0x6A83;
+    private static final int SW_SECURITY_NOT_SATISFIED = 0x6982;
+    private static final int SW_CONDITIONS_NOT_SATISFIED = 0x6985;
 
     private final CardClient card;
     private final CardManager cardManager;
@@ -34,7 +35,9 @@ public class WalletService {
     private final TransactionService transactionService;
     private final SignatureBuilder signatureBuilder;
     private final ConfigService configService;
-    private final BackupProvisioningService backupProvisioningService;
+
+    private boolean loggedIn;
+    private byte[] loggedInPublicKey;
 
     public WalletService(CardClient card, CardManager cardManager, RunConfig runConfig, BalanceService balanceService,
             TransactionService transactionService, SignatureBuilder signatureBuilder,
@@ -46,7 +49,8 @@ public class WalletService {
         this.transactionService = transactionService;
         this.signatureBuilder = signatureBuilder;
         this.configService = configService;
-        this.backupProvisioningService = new BackupProvisioningService();
+        this.loggedIn = false;
+        this.loggedInPublicKey = null;
     }
 
     /**
@@ -55,26 +59,122 @@ public class WalletService {
      * @param ui the UI for prompts
      */
     public void initWallet(ConsoleUI ui) {
+        activateWallet(ui);
+    }
+
+    /**
+     * Activates a new wallet and automatically opens a login session.
+     *
+     * @param ui the UI for prompts
+     * @return true if activation and auto-login succeed
+     */
+    public boolean activateWallet(ConsoleUI ui) {
         try {
-            ui.showInfo("Initializing wallet...");
+            reconnectCard();
+
+            if (isWalletReady()) {
+                ui.showError("Wallet is already activated. Please use Login.");
+                return false;
+            }
+
+            ui.showInfo("Activating wallet...");
 
             byte[] pin = ui.promptPin4Digits("Enter new PIN (4 digits): ");
             byte[] pinConfirm = ui.promptPin4Digits("Confirm PIN: ");
 
             if (!Arrays.equals(pin, pinConfirm)) {
-                ui.showError("PINs do not match. Wallet initialization cancelled.");
-                return;
+                ui.showError("PINs do not match. Wallet activation cancelled.");
+                clearLoginState();
+                return false;
             }
 
             card.setupWallet(pin);
-            ui.showInfo("Wallet initialized successfully!");
+            ui.showInfo("Wallet activated successfully!");
 
-            // Verify the key was generated
             byte[] publicKey = card.getPublicKey();
             String address = deriveAddress(publicKey);
             ui.showInfo("Wallet address: " + address);
+            markLoggedIn(publicKey);
+            ui.showInfo("Logged in successfully.");
+            return true;
         } catch (Exception e) {
-            ui.showError("Failed to initialize wallet: " + e.getMessage());
+            clearLoginState();
+            ui.showError("Failed to activate wallet: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Verifies the PIN and opens a login session.
+     *
+     * @param ui the UI for prompts
+     * @return true if login succeeds
+     */
+    public boolean login(ConsoleUI ui) {
+        try {
+            reconnectCard();
+
+            if (!isWalletReady()) {
+                ui.showError("Wallet is not activated. Please activate first.");
+                clearLoginState();
+                return false;
+            }
+
+            byte[] pin = ui.promptPin4Digits("Enter PIN to login: ");
+            if (!card.verifyPin(pin)) {
+                ui.showError("Invalid PIN.");
+                clearLoginState();
+                return false;
+            }
+
+            byte[] publicKey = card.getPublicKey();
+            markLoggedIn(publicKey);
+            ui.showInfo("Login successful.");
+            return true;
+        } catch (Exception e) {
+            clearLoginState();
+            ui.showError("Login failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Clears local login session and reconnects to reset card validation state.
+     */
+    public void logout() {
+        clearLoginState();
+        try {
+            reconnectCard();
+        } catch (Exception ignored) {
+            // Local session is already cleared.
+        }
+    }
+
+    /**
+     * Returns true when client is currently logged in.
+     */
+    public boolean isLoggedIn() {
+        return loggedIn;
+    }
+
+    /**
+     * Re-validates current login session against the connected card.
+     * Returns false and clears local session when card state changed.
+     */
+    public boolean refreshLoginSession() {
+        if (!loggedIn) {
+            return false;
+        }
+        try {
+            byte[] currentPublicKey = card.getPublicKey();
+            if (!isSamePublicKey(loggedInPublicKey, currentPublicKey)) {
+                clearLoginState();
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            clearLoginState();
+            return false;
         }
     }
 
@@ -85,13 +185,11 @@ public class WalletService {
      * @return the wallet info, or null if unavailable
      */
     public WalletInfo viewWallet(ConsoleUI ui) {
-        try {
-            byte[] pin = ui.promptPin4Digits("Enter PIN to view wallet: ");
-            if (!card.verifyPin(pin)) {
-                ui.showError("Invalid PIN.");
-                return null;
-            }
+        if (!requireLoggedInSession(ui)) {
+            return null;
+        }
 
+        try {
             byte[] publicKey = card.getPublicKey();
             String address = deriveAddress(publicKey);
 
@@ -112,6 +210,10 @@ public class WalletService {
      * @param ui the UI for prompts
      */
     public void updatePin(ConsoleUI ui) {
+        if (!requireLoggedInSession(ui)) {
+            return;
+        }
+
         try {
             byte[][] pins = ui.promptUpdatePin();
             if (pins == null) {
@@ -123,6 +225,13 @@ public class WalletService {
 
             card.updatePin(currentPin, newPin);
             ui.showInfo("PIN updated successfully!");
+        } catch (CardOperationException e) {
+            if (isSessionFailureStatus(e.getSw())) {
+                clearLoginState();
+                ui.showError("PIN update failed: session expired. Please login again.");
+                return;
+            }
+            ui.showError("Failed to update PIN: " + e.getMessage());
         } catch (Exception e) {
             ui.showError("Failed to update PIN: " + e.getMessage());
         }
@@ -133,6 +242,10 @@ public class WalletService {
      * Uses certificate-based mutual authentication + ECDH encrypted transfer.
      */
     public void backupWallet(ConsoleUI ui) {
+        if (!requireLoggedInSession(ui)) {
+            return;
+        }
+
         try {
             ui.showInfo("Starting Chainora secure backup flow...");
 
@@ -142,14 +255,14 @@ public class WalletService {
             reconnectCard();
             card.clearBackupLinkState();
             destinationPinFromInitialization = ensureDestinationPinInitialized(ui);
-            byte[] destinationCert = ensureDeviceCertificateProvisioned(ui, "destination");
+            byte[] destinationCert = ensureDeviceCertificateInstalled("destination");
             byte[] destinationLinkProof = card.startBackupLinkProof();
 
             ui.promptCardSwap("Insert source card and press Enter.");
             reconnectCard();
             card.clearBackupLinkState();
             ensurePinInitialized("source");
-            byte[] sourceCert = ensureDeviceCertificateProvisioned(ui, "source");
+            byte[] sourceCert = ensureDeviceCertificateInstalled("source");
             byte[] sourceLinkProof = card.startBackupLinkProof();
             card.loadBackupPeerCertificate(destinationCert);
             card.loadBackupPeerLinkProof(destinationLinkProof);
@@ -187,6 +300,9 @@ public class WalletService {
             ui.showInfo("Destination card now contains the same wallet key as source card.");
         } catch (Exception e) {
             ui.showError("Backup failed: " + e.getMessage());
+        } finally {
+            clearLoginState();
+            ui.showInfo("Backup flow closed the login session. Please login again.");
         }
     }
 
@@ -213,6 +329,10 @@ public class WalletService {
      * @param ui the UI for prompts
      */
     public void sendEth(ConsoleUI ui) {
+        if (!requireLoggedInSession(ui)) {
+            return;
+        }
+
         try {
             Network network = configService.getActiveNetwork();
             String recipient = ui.promptAddress();
@@ -221,7 +341,8 @@ public class WalletService {
 
             // Verify PIN
             if (!card.verifyPin(pin)) {
-                ui.showError("Invalid PIN. Transaction cancelled.");
+                clearLoginState();
+                ui.showError("Invalid PIN. Transaction cancelled. Please login again.");
                 return;
             }
 
@@ -266,6 +387,13 @@ public class WalletService {
             ui.showInfo("Broadcasting transaction on " + network.displayName + "...");
             String txHash = transactionService.send(network, rawTxHex);
             ui.showTransactionSent(txHash);
+        } catch (CardOperationException e) {
+            if (isSessionFailureStatus(e.getSw())) {
+                clearLoginState();
+                ui.showError("Transaction failed: session expired. Please login again.");
+                return;
+            }
+            ui.showError("Transaction failed: " + e.getMessage());
         } catch (Exception e) {
             ui.showError("Transaction failed: " + e.getMessage());
         }
@@ -294,31 +422,47 @@ public class WalletService {
         return null;
     }
 
+    private boolean requireLoggedInSession(ConsoleUI ui) {
+        if (!loggedIn) {
+            ui.showError("Please login first.");
+            return false;
+        }
+        if (!refreshLoginSession()) {
+            ui.showError("Login session expired or card changed. Please login again.");
+            return false;
+        }
+        return true;
+    }
+
+    private void markLoggedIn(byte[] publicKey) {
+        loggedInPublicKey = normalizePublicKey(publicKey);
+        loggedIn = true;
+    }
+
+    private void clearLoginState() {
+        loggedIn = false;
+        loggedInPublicKey = null;
+    }
+
+    private boolean isSessionFailureStatus(int sw) {
+        return sw == SW_SECURITY_NOT_SATISFIED || sw == SW_CONDITIONS_NOT_SATISFIED;
+    }
+
     private void ensurePinInitialized(String cardRole) throws CardException {
         if (!card.isPinInitialized()) {
             throw new IllegalStateException("PIN is not initialized on " + cardRole + " card.");
         }
     }
 
-    private byte[] ensureDeviceCertificateProvisioned(ConsoleUI ui, String cardRole) throws CardException {
+    private byte[] ensureDeviceCertificateInstalled(String cardRole) throws CardException {
         try {
             return card.getBackupDeviceCertificate();
         } catch (CardOperationException ex) {
             if (ex.getSw() != SW_RECORD_NOT_FOUND) {
                 throw ex;
             }
-
-            if (!ui.confirmDeviceProvisioning(cardRole)) {
-                throw new IllegalStateException("Provisioning declined for " + cardRole + " card.");
-            }
-
-            ui.showInfo("Running dev provisioning for " + cardRole + " card...");
-            ui.showInfo("Tip: set CHAINORA_ENABLE_DEV_PROVISIONING=1 before running client.");
-            byte[] csr = card.getBackupFactoryCsr();
-            byte[] certificate = backupProvisioningService.issueDeviceCertificate(csr);
-            card.setBackupDeviceCertificate(certificate);
-            ui.showInfo("Provisioning complete for " + cardRole + " card.");
-            return card.getBackupDeviceCertificate();
+            throw new IllegalStateException(
+                    "Device certificate is missing on " + cardRole + " card. Reinstall applet to provision certificate.");
         }
     }
 

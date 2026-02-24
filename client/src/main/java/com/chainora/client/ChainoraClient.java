@@ -61,97 +61,98 @@ public class ChainoraClient {
     }
 
     private static void runCli(ConsoleUI ui, WalletService walletService, ConfigService configService) {
-        // Show wallet status on startup
-        if (walletService.isWalletReady()) {
-            String address = walletService.getAddress();
-            if (address != null) {
-                System.out.println();
-                System.out.println("Wallet already initialized.");
-                System.out.println("Address: " + address);
-            }
-        }
-
         boolean exit = false;
         while (!exit) {
-            int choice = ui.promptMainMenu();
+            if (walletService.isLoggedIn() && !walletService.refreshLoginSession()) {
+                ui.showError("Login session expired or card changed. Please login again.");
+            }
+
+            if (!walletService.isLoggedIn()) {
+                int guestChoice = ui.promptGuestMenu();
+                switch (guestChoice) {
+                    case 1:
+                        handleLogin(ui, walletService);
+                        break;
+                    case 2:
+                        handleActivateWallet(ui, walletService);
+                        break;
+                    case 3:
+                        exit = true;
+                        break;
+                    default:
+                        break;
+                }
+                continue;
+            }
+
+            int choice = ui.promptWalletMenu();
             switch (choice) {
                 case 1:
-                    handleInitWallet(ui, walletService);
-                    break;
-                case 2:
                     handleViewWallet(ui, walletService);
                     break;
-                case 3:
+                case 2:
                     handleSendEth(ui, walletService);
                     break;
-                case 4:
+                case 3:
                     handleUpdatePin(ui, walletService);
                     break;
-                case 5:
+                case 4:
                     handleBackupWallet(ui, walletService);
                     break;
-                case 6:
+                case 5:
                     handleSettings(ui, configService);
+                    break;
+                case 6:
+                    handleLogout(ui, walletService);
                     break;
                 case 7:
                     exit = true;
                     break;
+                default:
+                    break;
             }
         }
     }
 
-    private static void handleInitWallet(ConsoleUI ui, WalletService walletService) {
-        ui.showBanner("INIT WALLET");
-        if (walletService.isWalletReady()) {
-            ui.showInfo("Wallet is already initialized.");
-            ui.showInfo("Address: " + walletService.getAddress());
-            ui.pause();
-            return;
-        }
-        walletService.initWallet(ui);
+    private static void handleActivateWallet(ConsoleUI ui, WalletService walletService) {
+        ui.showBanner("ACTIVATE WALLET");
+        walletService.activateWallet(ui);
+        ui.pause();
+    }
+
+    private static void handleLogin(ConsoleUI ui, WalletService walletService) {
+        ui.showBanner("LOGIN");
+        walletService.login(ui);
+        ui.pause();
+    }
+
+    private static void handleLogout(ConsoleUI ui, WalletService walletService) {
+        ui.showBanner("LOGOUT");
+        walletService.logout();
+        ui.showInfo("Logged out.");
+        ui.pause();
     }
 
     private static void handleViewWallet(ConsoleUI ui, WalletService walletService) {
         ui.showBanner("VIEW WALLET");
-        if (!walletService.isWalletReady()) {
-            if (ui.promptWalletNotReady()) {
-                walletService.initWallet(ui);
-            }
-            return;
-        }
         walletService.viewWallet(ui);
         ui.pause();
     }
 
     private static void handleSendEth(ConsoleUI ui, WalletService walletService) {
         ui.showBanner("SEND ETH");
-        if (!walletService.isWalletReady()) {
-            ui.showError("Wallet not initialized. Please initialize first.");
-            ui.pause();
-            return;
-        }
         walletService.sendEth(ui);
         ui.pause();
     }
 
     private static void handleUpdatePin(ConsoleUI ui, WalletService walletService) {
         ui.showBanner("UPDATE PIN");
-        if (!walletService.isWalletReady()) {
-            ui.showError("Wallet not initialized. Please initialize first.");
-            ui.pause();
-            return;
-        }
         walletService.updatePin(ui);
         ui.pause();
     }
 
     private static void handleBackupWallet(ConsoleUI ui, WalletService walletService) {
         ui.showBanner("BACKUP WALLET");
-        if (!walletService.isWalletReady()) {
-            ui.showError("Source wallet is not initialized. Please initialize first.");
-            ui.pause();
-            return;
-        }
         walletService.backupWallet(ui);
         ui.pause();
     }

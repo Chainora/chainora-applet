@@ -75,9 +75,9 @@ public class ChainoraWallet extends Applet {
                 false);
         setCurveParameters(chainoraFactoryRootPublicKey);
         chainoraFactoryRootPublicKey.setW(
-                Configuration.CHAINORA_DEV_ROOT_PUBLIC_KEY,
+                Configuration.CHAINORA_FACTORY_ROOT_PUBLIC_KEY,
                 (short) 0,
-                (short) Configuration.CHAINORA_DEV_ROOT_PUBLIC_KEY.length);
+                (short) Configuration.CHAINORA_FACTORY_ROOT_PUBLIC_KEY.length);
 
         ECPublicKey peerDeviceAuthPublicKey = (ECPublicKey) KeyBuilder.buildKey(
                 KeyBuilder.TYPE_EC_FP_PUBLIC,
