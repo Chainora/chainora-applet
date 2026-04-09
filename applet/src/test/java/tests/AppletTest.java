@@ -18,6 +18,16 @@ import javax.smartcardio.ResponseAPDU;
  */
 @SuppressWarnings("restriction")
 public class AppletTest extends BaseTest {
+    private static final int APPLET_CLA = 0x80;
+    private static final byte BACKUP_PROTOCOL_VERSION = 0x02;
+    private static final byte DEVICE_CERT_VERSION = 0x01;
+    private static final short LINK_PROOF_BODY_LENGTH = 102;
+    private static final short LINK_PROOF_COUNTER_OFFSET = 3;
+    private static final short LINK_PROOF_DEVICE_PUBLIC_OFFSET = 21;
+    private static final short ENVELOPE_COUNTER_OFFSET = 3;
+    private static final short ENVELOPE_CIPHER_LENGTH_OFFSET = 53;
+    private static final short LINK_PROOF_COUNTER = 1;
+    private static final short ENVELOPE_COUNTER = 2;
 
     private static byte[] currentPin = new byte[] { '1', '2', '3', '4' };
 
@@ -49,24 +59,24 @@ public class AppletTest extends BaseTest {
      */
     private void setupPinForReset(CardManager cardManager) throws Exception {
         // Check if PIN is initialized
-        final CommandAPDU isInitCmd = new CommandAPDU(0x00, 0x14, 0x00, 0x00);
+        final CommandAPDU isInitCmd = new CommandAPDU(APPLET_CLA, 0x14, 0x00, 0x00);
         final ResponseAPDU isInitResponse = cardManager.transmit(isInitCmd);
         boolean pinInitialized = isInitResponse.getData()[0] == 1;
 
         if (pinInitialized) {
             // PIN is initialized, verify it first then reset
-            final CommandAPDU verifyCmd = new CommandAPDU(0x00, 0x11, 0x00, 0x00, currentPin);
+            final CommandAPDU verifyCmd = new CommandAPDU(APPLET_CLA, 0x11, 0x00, 0x00, currentPin);
             cardManager.transmit(verifyCmd);
         } else {
             // PIN not initialized, init it
-            final CommandAPDU initCmd = new CommandAPDU(0x00, 0x10, 0x00, 0x00, currentPin);
+            final CommandAPDU initCmd = new CommandAPDU(APPLET_CLA, 0x10, 0x00, 0x00, currentPin);
             cardManager.transmit(initCmd);
-            final CommandAPDU verifyCmd = new CommandAPDU(0x00, 0x11, 0x00, 0x00, currentPin);
+            final CommandAPDU verifyCmd = new CommandAPDU(APPLET_CLA, 0x11, 0x00, 0x00, currentPin);
             cardManager.transmit(verifyCmd);
         }
 
         // Now RESET_PIN will work (requires validated PIN)
-        final CommandAPDU resetCmd = new CommandAPDU(0x00, 0x13, 0x00, 0x00);
+        final CommandAPDU resetCmd = new CommandAPDU(APPLET_CLA, 0x13, 0x00, 0x00);
         final ResponseAPDU resetResponse = cardManager.transmit(resetCmd);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) resetResponse.getSW());
     }
@@ -80,14 +90,28 @@ public class AppletTest extends BaseTest {
 
         // Init PIN - reset currentPin to default for initialization
         currentPin = new byte[] { '1', '2', '3', '4' };
-        final CommandAPDU initCmd = new CommandAPDU(0x00, 0x10, 0x00, 0x00, currentPin);
+        final CommandAPDU initCmd = new CommandAPDU(APPLET_CLA, 0x10, 0x00, 0x00, currentPin);
         final ResponseAPDU initResponse = cardManager.transmit(initCmd);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) initResponse.getSW());
 
         // Verify PIN
-        final CommandAPDU verifyCmd = new CommandAPDU(0x00, 0x11, 0x00, 0x00, currentPin);
+        final CommandAPDU verifyCmd = new CommandAPDU(APPLET_CLA, 0x11, 0x00, 0x00, currentPin);
         final ResponseAPDU verifyResponse = cardManager.transmit(verifyCmd);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) verifyResponse.getSW());
+    }
+
+    private byte[] getDeviceCertificate(CardManager cardManager) throws Exception {
+        final CommandAPDU getCertCmd = new CommandAPDU(APPLET_CLA, 0x30, 0x00, 0x00);
+        final ResponseAPDU certResponse = cardManager.transmit(getCertCmd);
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) certResponse.getSW());
+        Assert.assertTrue(certResponse.getData().length > 0);
+        return certResponse.getData();
+    }
+
+    private short readShort(byte[] data, int offset) {
+        int high = data[offset] & 0xFF;
+        int low = data[offset + 1] & 0xFF;
+        return (short) ((high << 8) | low);
     }
 
     @Test
@@ -98,7 +122,7 @@ public class AppletTest extends BaseTest {
         setupPinForReset(cardManager);
 
         // Check is PIN initialized
-        final CommandAPDU isInitCmd = new CommandAPDU(0x00, 0x14, 0x00, 0x00);
+        final CommandAPDU isInitCmd = new CommandAPDU(APPLET_CLA, 0x14, 0x00, 0x00);
         final ResponseAPDU isInitResponse = cardManager.transmit(isInitCmd);
         Assert.assertNotNull(isInitResponse);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) isInitResponse.getSW());
@@ -112,7 +136,7 @@ public class AppletTest extends BaseTest {
         final CardManager cardManager = connect();
 
         // Get Public Key
-        final CommandAPDU getPubKeyCmd = new CommandAPDU(0x00, 0x21, 0x00, 0x00);
+        final CommandAPDU getPubKeyCmd = new CommandAPDU(APPLET_CLA, 0x21, 0x00, 0x00);
         final ResponseAPDU getPubKeyResponse = cardManager.transmit(getPubKeyCmd);
         Assert.assertNotNull(getPubKeyResponse);
         Assert.assertEquals(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED, (short) getPubKeyResponse.getSW());
@@ -128,13 +152,13 @@ public class AppletTest extends BaseTest {
         setupPinInitialized(cardManager);
 
         // Generate Key Pair
-        final CommandAPDU genKeyCmd = new CommandAPDU(0x00, 0x20, 0x00, 0x00);
+        final CommandAPDU genKeyCmd = new CommandAPDU(APPLET_CLA, 0x20, 0x00, 0x00);
         final ResponseAPDU genKeyResponse = cardManager.transmit(genKeyCmd);
         Assert.assertNotNull(genKeyResponse);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) genKeyResponse.getSW());
 
         // Get Public Key
-        final CommandAPDU getPubKeyCmd = new CommandAPDU(0x00, 0x21, 0x00, 0x00);
+        final CommandAPDU getPubKeyCmd = new CommandAPDU(APPLET_CLA, 0x21, 0x00, 0x00);
         final ResponseAPDU getPubKeyResponse = cardManager.transmit(getPubKeyCmd);
         Assert.assertNotNull(getPubKeyResponse);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) getPubKeyResponse.getSW());
@@ -158,7 +182,7 @@ public class AppletTest extends BaseTest {
         byte[] dataToSign = new byte[] {}; // Wrong length
 
         // Sign Data
-        final CommandAPDU signCmd = new CommandAPDU(0x00, 0x22, 0x00, 0x00, dataToSign);
+        final CommandAPDU signCmd = new CommandAPDU(APPLET_CLA, 0x22, 0x00, 0x00, dataToSign);
         final ResponseAPDU signResponse = cardManager.transmit(signCmd);
         Assert.assertNotNull(signResponse);
         Assert.assertEquals(ISO7816.SW_WRONG_LENGTH, (short) signResponse.getSW());
@@ -174,7 +198,7 @@ public class AppletTest extends BaseTest {
         setupPinInitialized(cardManager);
 
         // Generate Key Pair
-        final CommandAPDU genKeyCmd = new CommandAPDU(0x00, 0x20, 0x00, 0x00);
+        final CommandAPDU genKeyCmd = new CommandAPDU(APPLET_CLA, 0x20, 0x00, 0x00);
         final ResponseAPDU genKeyResponse = cardManager.transmit(genKeyCmd);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) genKeyResponse.getSW());
 
@@ -187,7 +211,7 @@ public class AppletTest extends BaseTest {
         };
 
         // Sign Data
-        final CommandAPDU signCmd = new CommandAPDU(0x00, 0x22, 0x00, 0x00, dataToSign);
+        final CommandAPDU signCmd = new CommandAPDU(APPLET_CLA, 0x22, 0x00, 0x00, dataToSign);
         final ResponseAPDU signResponse = cardManager.transmit(signCmd);
         Assert.assertNotNull(signResponse);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) signResponse.getSW());
@@ -218,13 +242,13 @@ public class AppletTest extends BaseTest {
         setupPinInitialized(cardManager);
 
         // Generate Key Pair
-        final CommandAPDU genKeyCmd = new CommandAPDU(0x00, 0x20, 0x00, 0x00);
+        final CommandAPDU genKeyCmd = new CommandAPDU(APPLET_CLA, 0x20, 0x00, 0x00);
         final ResponseAPDU genKeyResponse = cardManager.transmit(genKeyCmd);
         Assert.assertNotNull(genKeyResponse);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) genKeyResponse.getSW());
 
         // Get Public Key
-        final CommandAPDU getPubKeyCmd = new CommandAPDU(0x00, 0x21, 0x00, 0x00);
+        final CommandAPDU getPubKeyCmd = new CommandAPDU(APPLET_CLA, 0x21, 0x00, 0x00);
         final ResponseAPDU getPubKeyResponse = cardManager.transmit(getPubKeyCmd);
         Assert.assertNotNull(getPubKeyResponse);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) getPubKeyResponse.getSW());
@@ -241,7 +265,7 @@ public class AppletTest extends BaseTest {
         byte[] evmTxHash = TestUtils.keccak256Hash(evmTx);
 
         // Sign Data
-        final CommandAPDU signCmd = new CommandAPDU(0x00, 0x22, 0x00, 0x00, evmTxHash);
+        final CommandAPDU signCmd = new CommandAPDU(APPLET_CLA, 0x22, 0x00, 0x00, evmTxHash);
         final ResponseAPDU signResponse = cardManager.transmit(signCmd);
         Assert.assertNotNull(signResponse);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) signResponse.getSW());
@@ -285,12 +309,12 @@ public class AppletTest extends BaseTest {
     public void backupGetFactoryCsr_ReturnsExpectedFormat() throws Exception {
         final CardManager cardManager = connect();
 
-        final CommandAPDU csrCmd = new CommandAPDU(0x00, 0x30, 0x10, 0x00);
+        final CommandAPDU csrCmd = new CommandAPDU(APPLET_CLA, 0x30, 0x10, 0x00);
         final ResponseAPDU csrResponse = cardManager.transmit(csrCmd);
         Assert.assertNotNull(csrResponse);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) csrResponse.getSW());
         Assert.assertEquals(82, csrResponse.getData().length);
-        Assert.assertEquals(0x01, csrResponse.getData()[0]);
+        Assert.assertEquals(DEVICE_CERT_VERSION, csrResponse.getData()[0]);
         Assert.assertEquals(0x04, csrResponse.getData()[17]);
     }
 
@@ -301,7 +325,7 @@ public class AppletTest extends BaseTest {
     public void backupSession_UnknownP1_ReturnsIncorrectP1P2() throws Exception {
         final CardManager cardManager = connect();
 
-        final CommandAPDU cmd = new CommandAPDU(0x00, 0x30, 0x7F, 0x00);
+        final CommandAPDU cmd = new CommandAPDU(APPLET_CLA, 0x30, 0x7F, 0x00);
         final ResponseAPDU response = cardManager.transmit(cmd);
         Assert.assertNotNull(response);
         Assert.assertEquals(ISO7816.SW_INCORRECT_P1P2, (short) response.getSW());
@@ -315,7 +339,7 @@ public class AppletTest extends BaseTest {
         final CardManager cardManager = connect();
 
         final byte[] invalidCert = new byte[] { 0x01, 0x02, 0x03 };
-        final CommandAPDU cmd = new CommandAPDU(0x00, 0x30, 0x02, 0x00, invalidCert);
+        final CommandAPDU cmd = new CommandAPDU(APPLET_CLA, 0x30, 0x02, 0x00, invalidCert);
         final ResponseAPDU response = cardManager.transmit(cmd);
         Assert.assertNotNull(response);
         Assert.assertEquals(ISO7816.SW_DATA_INVALID, (short) response.getSW());
@@ -328,15 +352,204 @@ public class AppletTest extends BaseTest {
     public void backupLoadPeerLinkProof_WithoutPeerCert_ReturnsConditionsNotSatisfied() throws Exception {
         final CardManager cardManager = connect();
 
-        final CommandAPDU clearStateCmd = new CommandAPDU(0x00, 0x30, 0x04, 0x00);
+        final CommandAPDU clearStateCmd = new CommandAPDU(APPLET_CLA, 0x30, 0x04, 0x00);
         final ResponseAPDU clearStateResponse = cardManager.transmit(clearStateCmd);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) clearStateResponse.getSW());
 
         final byte[] fakeProof = new byte[] { 0x01 };
-        final CommandAPDU cmd = new CommandAPDU(0x00, 0x30, 0x03, 0x00, fakeProof);
+        final CommandAPDU cmd = new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, fakeProof);
         final ResponseAPDU response = cardManager.transmit(cmd);
         Assert.assertNotNull(response);
         Assert.assertEquals(ISO7816.SW_CONDITIONS_NOT_SATISFIED, (short) response.getSW());
+    }
+
+    /**
+     * Test START_LINK_PROOF returns v2 format with sessionId/counter.
+     */
+    @Test
+    public void backupStartLinkProof_ReturnsV2Format() throws Exception {
+        final CardManager cardManager = connect();
+        getDeviceCertificate(cardManager);
+
+        final CommandAPDU startLinkProofCmd = new CommandAPDU(APPLET_CLA, 0x30, 0x01, 0x00);
+        final ResponseAPDU startLinkProofResponse = cardManager.transmit(startLinkProofCmd);
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) startLinkProofResponse.getSW());
+
+        final byte[] proof = startLinkProofResponse.getData();
+        Assert.assertTrue(proof.length > (LINK_PROOF_BODY_LENGTH + 1));
+        Assert.assertEquals(BACKUP_PROTOCOL_VERSION, proof[0]);
+        Assert.assertEquals(LINK_PROOF_COUNTER, readShort(proof, LINK_PROOF_COUNTER_OFFSET));
+        Assert.assertEquals(0x04, proof[LINK_PROOF_DEVICE_PUBLIC_OFFSET]);
+
+        final short sigLen = (short) (proof[LINK_PROOF_BODY_LENGTH] & 0xFF);
+        Assert.assertTrue(sigLen > 0);
+        Assert.assertEquals(LINK_PROOF_BODY_LENGTH + 1 + sigLen, proof.length);
+    }
+
+    /**
+     * Test replaying peer link proof in same session is rejected.
+     */
+    @Test
+    public void backupLoadPeerLinkProof_ReplayInSameSession_ReturnsConditionsNotSatisfied() throws Exception {
+        final CardManager cardManager = connect();
+        getDeviceCertificate(cardManager);
+
+        cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x04, 0x00));
+
+        final byte[] peerCert = getDeviceCertificate(cardManager);
+        final ResponseAPDU proofResponse = cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x01, 0x00));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) proofResponse.getSW());
+        final byte[] proof = proofResponse.getData();
+
+        final ResponseAPDU loadCertResponse = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x02, 0x00, peerCert));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) loadCertResponse.getSW());
+
+        final ResponseAPDU firstLoadProofResponse = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, proof));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) firstLoadProofResponse.getSW());
+
+        final ResponseAPDU replayLoadProofResponse = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, proof));
+        Assert.assertEquals(ISO7816.SW_CONDITIONS_NOT_SATISFIED, (short) replayLoadProofResponse.getSW());
+    }
+
+    /**
+     * Test LOAD_PEER_LINK_PROOF DoS threshold: 3 invalid attempts lock command for session.
+     */
+    @Test
+    public void backupLoadPeerLinkProof_InvalidAttempts_ReachesThresholdAndLocks() throws Exception {
+        final CardManager cardManager = connect();
+        getDeviceCertificate(cardManager);
+        cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x04, 0x00));
+
+        final byte[] peerCert = getDeviceCertificate(cardManager);
+        final ResponseAPDU startProofResponse = cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x01, 0x00));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) startProofResponse.getSW());
+        final ResponseAPDU loadCertResponse = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x02, 0x00, peerCert));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) loadCertResponse.getSW());
+
+        final byte[] malformedProof = new byte[] { BACKUP_PROTOCOL_VERSION };
+        final ResponseAPDU invalid1 = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, malformedProof));
+        Assert.assertEquals(ISO7816.SW_WRONG_LENGTH, (short) invalid1.getSW());
+
+        final ResponseAPDU invalid2 = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, malformedProof));
+        Assert.assertEquals(ISO7816.SW_WRONG_LENGTH, (short) invalid2.getSW());
+
+        final ResponseAPDU invalid3 = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, malformedProof));
+        Assert.assertEquals(ISO7816.SW_CONDITIONS_NOT_SATISFIED, (short) invalid3.getSW());
+
+        final ResponseAPDU invalid4 = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, malformedProof));
+        Assert.assertEquals(ISO7816.SW_CONDITIONS_NOT_SATISFIED, (short) invalid4.getSW());
+
+        final ResponseAPDU clearStateResponse = cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x04, 0x00));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) clearStateResponse.getSW());
+
+        final ResponseAPDU restartedProofResponse = cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x01, 0x00));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) restartedProofResponse.getSW());
+        final ResponseAPDU restartedLoadCertResponse = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x02, 0x00, peerCert));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) restartedLoadCertResponse.getSW());
+
+        final ResponseAPDU invalidAfterReset = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, malformedProof));
+        Assert.assertEquals(ISO7816.SW_WRONG_LENGTH, (short) invalidAfterReset.getSW());
+    }
+
+    /**
+     * Test BACKUP_IMPORT DoS threshold: 3 invalid attempts lock import in current session.
+     */
+    @Test
+    public void backupImport_InvalidAttempts_ReachesThresholdAndLocks() throws Exception {
+        final CardManager cardManager = connect();
+        setupPinInitialized(cardManager);
+        getDeviceCertificate(cardManager);
+        cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x04, 0x00));
+
+        final byte[] peerCert = getDeviceCertificate(cardManager);
+        final ResponseAPDU proofResponse = cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x01, 0x00));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) proofResponse.getSW());
+        final byte[] proof = proofResponse.getData();
+
+        Assert.assertEquals(ISO7816.SW_NO_ERROR,
+                (short) cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x02, 0x00, peerCert)).getSW());
+        Assert.assertEquals(ISO7816.SW_NO_ERROR,
+                (short) cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, proof)).getSW());
+
+        final byte[] malformedEnvelope = new byte[] { BACKUP_PROTOCOL_VERSION };
+        final ResponseAPDU invalid1 = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x32, 0x00, 0x00, malformedEnvelope));
+        Assert.assertEquals(ISO7816.SW_WRONG_LENGTH, (short) invalid1.getSW());
+
+        final ResponseAPDU invalid2 = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x32, 0x00, 0x00, malformedEnvelope));
+        Assert.assertEquals(ISO7816.SW_WRONG_LENGTH, (short) invalid2.getSW());
+
+        final ResponseAPDU invalid3 = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x32, 0x00, 0x00, malformedEnvelope));
+        Assert.assertEquals(ISO7816.SW_CONDITIONS_NOT_SATISFIED, (short) invalid3.getSW());
+
+        final ResponseAPDU invalid4 = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x32, 0x00, 0x00, malformedEnvelope));
+        Assert.assertEquals(ISO7816.SW_CONDITIONS_NOT_SATISFIED, (short) invalid4.getSW());
+
+        Assert.assertEquals(ISO7816.SW_NO_ERROR,
+                (short) cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x04, 0x00)).getSW());
+        final ResponseAPDU newProofResponse = cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x01, 0x00));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) newProofResponse.getSW());
+        final byte[] newProof = newProofResponse.getData();
+        Assert.assertEquals(ISO7816.SW_NO_ERROR,
+                (short) cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x02, 0x00, peerCert)).getSW());
+        Assert.assertEquals(ISO7816.SW_NO_ERROR,
+                (short) cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, newProof)).getSW());
+
+        final ResponseAPDU invalidAfterReset = cardManager
+                .transmit(new CommandAPDU(APPLET_CLA, 0x32, 0x00, 0x00, malformedEnvelope));
+        Assert.assertEquals(ISO7816.SW_WRONG_LENGTH, (short) invalidAfterReset.getSW());
+    }
+
+    /**
+     * Test BACKUP_EXPORT emits v2 envelope and clears link state after success.
+     */
+    @Test
+    public void backupExport_UsesV2EnvelopeAndClearsState() throws Exception {
+        final CardManager cardManager = connect();
+        setupPinInitialized(cardManager);
+        getDeviceCertificate(cardManager);
+        cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x04, 0x00));
+
+        final CommandAPDU genKeyCmd = new CommandAPDU(APPLET_CLA, 0x20, 0x00, 0x00);
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) cardManager.transmit(genKeyCmd).getSW());
+
+        final byte[] peerCert = getDeviceCertificate(cardManager);
+        final ResponseAPDU proofResponse = cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x01, 0x00));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) proofResponse.getSW());
+        final byte[] proof = proofResponse.getData();
+
+        Assert.assertEquals(ISO7816.SW_NO_ERROR,
+                (short) cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x02, 0x00, peerCert)).getSW());
+        Assert.assertEquals(ISO7816.SW_NO_ERROR,
+                (short) cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x30, 0x03, 0x00, proof)).getSW());
+
+        final ResponseAPDU exportResponse = cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x31, 0x00, 0x00));
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) exportResponse.getSW());
+        final byte[] envelope = exportResponse.getData();
+        Assert.assertTrue(envelope.length > ENVELOPE_CIPHER_LENGTH_OFFSET + 2);
+        Assert.assertEquals(BACKUP_PROTOCOL_VERSION, envelope[0]);
+        Assert.assertEquals(ENVELOPE_COUNTER, readShort(envelope, ENVELOPE_COUNTER_OFFSET));
+
+        final short cipherLen = (short) (envelope[ENVELOPE_CIPHER_LENGTH_OFFSET] & 0xFF);
+        final int signatureLengthOffset = ENVELOPE_CIPHER_LENGTH_OFFSET + 1 + cipherLen;
+        final short signatureLength = (short) (envelope[signatureLengthOffset] & 0xFF);
+        Assert.assertEquals(signatureLengthOffset + 1 + signatureLength, envelope.length);
+
+        final ResponseAPDU replayExportResponse = cardManager.transmit(new CommandAPDU(APPLET_CLA, 0x31, 0x00, 0x00));
+        Assert.assertEquals(ISO7816.SW_CONDITIONS_NOT_SATISFIED, (short) replayExportResponse.getSW());
     }
 
     /**
@@ -347,7 +560,7 @@ public class AppletTest extends BaseTest {
         final CardManager cardManager = connect();
 
         // Reset PIN without initializing/verifying PIN first
-        final CommandAPDU resetCmd = new CommandAPDU(0x00, 0x13, 0x00, 0x00);
+        final CommandAPDU resetCmd = new CommandAPDU(APPLET_CLA, 0x13, 0x00, 0x00);
         final ResponseAPDU resetResponse = cardManager.transmit(resetCmd);
         Assert.assertNotNull(resetResponse);
         Assert.assertEquals(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED, (short) resetResponse.getSW());
@@ -371,7 +584,7 @@ public class AppletTest extends BaseTest {
         updateData[0] = (byte) 4; // length of current PIN that will be read (wrong)
         System.arraycopy(newPin, 0, updateData, 1, newPin.length);
 
-        final CommandAPDU updateCmd = new CommandAPDU(0x00, 0x12, 0x00, 0x00, updateData);
+        final CommandAPDU updateCmd = new CommandAPDU(APPLET_CLA, 0x12, 0x00, 0x00, updateData);
         final ResponseAPDU updateResponse = cardManager.transmit(updateCmd);
         Assert.assertNotNull(updateResponse);
         Assert.assertEquals(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED, (short) updateResponse.getSW());
@@ -396,7 +609,7 @@ public class AppletTest extends BaseTest {
         System.arraycopy(wrongCurrentPin, 0, updateData, 1, wrongCurrentPin.length);
         System.arraycopy(newPin, 0, updateData, 1 + wrongCurrentPin.length, newPin.length);
 
-        final CommandAPDU updateCmd = new CommandAPDU(0x00, 0x12, 0x00, 0x00, updateData);
+        final CommandAPDU updateCmd = new CommandAPDU(APPLET_CLA, 0x12, 0x00, 0x00, updateData);
         final ResponseAPDU updateResponse = cardManager.transmit(updateCmd);
         Assert.assertNotNull(updateResponse);
         Assert.assertEquals(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED, (short) updateResponse.getSW());
@@ -420,7 +633,7 @@ public class AppletTest extends BaseTest {
         System.arraycopy(currentPin, 0, updateData, 1, currentPin.length);
         System.arraycopy(newPin, 0, updateData, 1 + currentPin.length, newPin.length);
 
-        final CommandAPDU updateCmd = new CommandAPDU(0x00, 0x12, 0x00, 0x00, updateData);
+        final CommandAPDU updateCmd = new CommandAPDU(APPLET_CLA, 0x12, 0x00, 0x00, updateData);
         final ResponseAPDU updateResponse = cardManager.transmit(updateCmd);
         Assert.assertNotNull(updateResponse);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) updateResponse.getSW());
@@ -429,7 +642,7 @@ public class AppletTest extends BaseTest {
         currentPin = newPin;
 
         // Verify new PIN works
-        final CommandAPDU verifyNewCmd = new CommandAPDU(0x00, 0x11, 0x00, 0x00, newPin);
+        final CommandAPDU verifyNewCmd = new CommandAPDU(APPLET_CLA, 0x11, 0x00, 0x00, newPin);
         final ResponseAPDU verifyNewResponse = cardManager.transmit(verifyNewCmd);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) verifyNewResponse.getSW());
     }
@@ -445,7 +658,7 @@ public class AppletTest extends BaseTest {
         setupPinInitialized(cardManager);
 
         // Generate key pair
-        final CommandAPDU genKeyCmd = new CommandAPDU(0x00, 0x20, 0x00, 0x00);
+        final CommandAPDU genKeyCmd = new CommandAPDU(APPLET_CLA, 0x20, 0x00, 0x00);
         cardManager.transmit(genKeyCmd);
 
         // n/2 value for secp256k1 (half of the curve order)
@@ -466,7 +679,7 @@ public class AppletTest extends BaseTest {
             hash[0] = (byte) i; // Different hash each iteration
             hash[31] = (byte) i;
 
-            final CommandAPDU signCmd = new CommandAPDU(0x00, 0x22, 0x00, 0x00, hash);
+            final CommandAPDU signCmd = new CommandAPDU(APPLET_CLA, 0x22, 0x00, 0x00, hash);
             final ResponseAPDU signResponse = cardManager.transmit(signCmd);
             Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) signResponse.getSW());
 

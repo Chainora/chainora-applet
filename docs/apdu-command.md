@@ -339,7 +339,7 @@ Command này dùng nhiều sub-command qua byte `P1`.
 - Trả về:
 
 ```
-[sessionId:2][deviceId:16][linkPublicKey:65][nonce:16][sigLen:1][sigDer:sigLen]
+[version:1][sessionId:2][counter:2][deviceId:16][linkPublicKey:65][nonce:16][sigLen:1][sigDer:sigLen]
 ```
 
 #### P1 = `0x02` LOAD_PEER_CERT
@@ -348,6 +348,9 @@ Command này dùng nhiều sub-command qua byte `P1`.
 - Card verify cert chain bằng hardcoded `CHAINORA_FACTORY_ROOT_PUBLIC_KEY`.
 
 #### P1 = `0x03` LOAD_PEER_LINK_PROOF
+
+- Security policy v2: only accept `version = 0x02`, `counter = 0x0001`.
+- DoS guard: after 3 invalid attempts (length/data/security) in the same session, the command is locked until `START_LINK_PROOF` or `CLEAR_LINK_STATE`.
 
 - Nạp link proof của card đối tác.
 - Card verify signature link proof bằng public key trong peer cert.
@@ -372,12 +375,16 @@ Command này dùng nhiều sub-command qua byte `P1`.
 **Response data format**:
 
 ```
-[version:1][sourceDeviceId:16][destDeviceId:16][iv:16][cipherLen:1][cipher:cipherLen][sigLen:1][sigDer:sigLen]
+[version:1][sessionId:2][counter:2][sourceDeviceId:16][destDeviceId:16][iv:16][cipherLen:1][cipher:cipherLen][sigLen:1][sigDer:sigLen]
 ```
 
 ---
 
 ### 3.3. BACKUP_IMPORT (INS `0x32`)
+
+- Security policy v2: only accept envelope `version = 0x02`, `counter = 0x0002`, and matching `sessionId`.
+- DoS guard: after 3 invalid attempts (length/data/security) in the same session, `BACKUP_IMPORT` is locked until `START_LINK_PROOF` or `CLEAR_LINK_STATE`.
+- Replay hardening: link state is cleared immediately after successful `BACKUP_EXPORT`/`BACKUP_IMPORT`.
 
 **Mô tả**: Card đích (destination) verify envelope, giải mã bằng session key và import key material.
 

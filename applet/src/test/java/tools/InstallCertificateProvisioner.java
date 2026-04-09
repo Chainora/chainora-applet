@@ -29,7 +29,7 @@ import cz.muni.fi.crocs.rcard.client.Util;
 public final class InstallCertificateProvisioner {
     private static final String APPLET_AID = "f0564e43485701";
 
-    private static final byte CLA = (byte) 0x00;
+    private static final byte CLA = (byte) 0x80;
     private static final byte INS_BACKUP_SESSION = (byte) 0x30;
 
     private static final byte P1_GET_DEVICE_CERT = (byte) 0x00;
@@ -48,7 +48,7 @@ public final class InstallCertificateProvisioner {
     private static final int MAX_DER_SIGNATURE_LENGTH = 72;
 
     private static final String FACTORY_ROOT_PRIVATE_KEY_HEX =
-            "2d516b177af68f88263fb075d5efd76a0fd5a895de64f639ff89e6cbcd562c7f";
+            "4627946b9d7da5245af8160d49e7680c159d40f45a7ed7bf1f4be74bff870057";
 
     private static final ECDomainParameters SECP256K1 = createSecp256k1Domain();
     private static final BigInteger HALF_CURVE_ORDER = SECP256K1.getN().shiftRight(1);

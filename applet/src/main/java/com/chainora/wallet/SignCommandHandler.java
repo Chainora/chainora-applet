@@ -3,6 +3,7 @@ package com.chainora.wallet;
 import javacard.framework.APDU;
 import javacard.framework.ISO7816;
 import javacard.framework.ISOException;
+import javacard.framework.Util;
 import javacard.security.ECPrivateKey;
 import javacard.security.Signature;
 
@@ -15,6 +16,8 @@ public class SignCommandHandler implements CommandHandler {
     private static final short HASH_LENGTH = 32;
 
     private static final short SW_INS_NOT_SUPPORTED = ISO7816.SW_INS_NOT_SUPPORTED;
+    private static final short SW_DATA_INVALID = ISO7816.SW_DATA_INVALID;
+    private static final short SW_WRONG_LENGTH = ISO7816.SW_WRONG_LENGTH;
 
     private final PinValidator pinValidator;
     private final ECPrivateKey privateKey;
@@ -50,9 +53,12 @@ public class SignCommandHandler implements CommandHandler {
                 bytesRead,
                 buffer,
                 (short) 0);
+        if (sigLength <= 0 || sigLength > Configuration.MAX_DER_SIGNATURE_LENGTH) {
+            ISOException.throwIt(SW_DATA_INVALID);
+        }
 
         // Normalize signature to Low-S to prevent transaction malleability
-        normalizeLowS(buffer, (short) 0, sigLength);
+        sigLength = normalizeLowS(buffer, (short) 0, sigLength);
 
         ApduUtils.sendData(apdu, (short) 0, sigLength);
     }
@@ -62,77 +68,108 @@ public class SignCommandHandler implements CommandHandler {
      * Ensures s <= n/2 to prevent signature malleability attacks.
      * DER encoding: 0x30 [totalLen] 0x02 [rLen] [r...] 0x02 [sLen] [s...]
      */
-    private void normalizeLowS(byte[] sig, short offset, short length) {
-        // Parse DER structure to find S value
-        // offset + 3 = rLen
-        short rLen = sig[(short) (offset + 3)];
-        // sOffset points to 0x02 marker before sLen
-        short sOffset = (short) (offset + 4 + rLen);
-        // sLen is at sOffset + 1
-        short sLen = sig[(short) (sOffset + 1)];
-
-        // S value starts at sOffset + 2
-        // DER adds leading 0x00 if first bit is 1 (sign extension prevention)
-        short sValueOffset = (short) (sOffset + 2);
-        short actualSLen = sLen;
-        boolean hasLeadingZero = (sLen > 1 && sig[sValueOffset] == 0);
-
-        if (hasLeadingZero) {
-            sValueOffset = (short) (sValueOffset + 1);
-            actualSLen = (short) (sLen - 1);
+    private short normalizeLowS(byte[] sig, short offset, short length) {
+        if (length < 8) {
+            ISOException.throwIt(SW_WRONG_LENGTH);
+        }
+        if (sig[offset] != 0x30) {
+            ISOException.throwIt(SW_DATA_INVALID);
         }
 
-        // Check if S needs normalization (s > n/2)
-        // Only compare first byte for efficiency - sufficient for most cases
-        short sFirst = (short) (sig[sValueOffset] & 0xFF);
-        short nDiv2First = (short) (Secp256k1.N_DIV_2[0] & 0xFF);
-
-        if (sFirst > nDiv2First) {
-            // Pad S to 32 bytes for subtraction
-            byte[] sPadded = new byte[Secp256k1.N.length];
-            short padStart = (short) (Secp256k1.N.length - actualSLen);
-            for (short i = 0; i < actualSLen; i++) {
-                sPadded[(short) (padStart + i)] = sig[(short) (sValueOffset + i)];
-            }
-
-            // Compute n - s (both 32 bytes)
-            byte[] result = new byte[Secp256k1.N.length];
-            short carry = 0;
-            for (short i = (short) (Secp256k1.N.length - 1); i >= 0; i--) {
-                short nByte = (short) (Secp256k1.N[i] & 0xFF);
-                short sByte = (short) (sPadded[i] & 0xFF);
-                short diff = (short) (nByte - sByte - carry);
-                carry = (diff < 0) ? (short) 1 : (short) 0;
-                result[i] = (byte) ((diff < 0) ? diff + 256 : diff);
-            }
-
-            // Strip leading zeros to get actual length
-            short actualLen = (short) Secp256k1.N.length;
-            while (actualLen > 0 && result[(short) (actualLen - 1)] == 0) {
-                actualLen--;
-            }
-
-            // Update DER signature
-            sig[(short) (sOffset + 1)] = (byte) actualLen;
-            for (short i = 0; i < actualLen; i++) {
-                sig[(short) (sOffset + 2 + i)] = result[i];
-            }
+        short seqLen = (short) (sig[(short) (offset + 1)] & 0xFF);
+        if (seqLen != (short) (length - 2)) {
+            ISOException.throwIt(SW_DATA_INVALID);
         }
+
+        short rMarkerOffset = (short) (offset + 2);
+        if (sig[rMarkerOffset] != 0x02) {
+            ISOException.throwIt(SW_DATA_INVALID);
+        }
+        short rLen = (short) (sig[(short) (rMarkerOffset + 1)] & 0xFF);
+        if (rLen <= 0) {
+            ISOException.throwIt(SW_DATA_INVALID);
+        }
+
+        short sMarkerOffset = (short) (rMarkerOffset + 2 + rLen);
+        if (sMarkerOffset >= (short) (offset + length) || sig[sMarkerOffset] != 0x02) {
+            ISOException.throwIt(SW_DATA_INVALID);
+        }
+
+        short sLenOffset = (short) (sMarkerOffset + 1);
+        short sLen = (short) (sig[sLenOffset] & 0xFF);
+        if (sLen <= 0) {
+            ISOException.throwIt(SW_DATA_INVALID);
+        }
+        short sValueOffset = (short) (sLenOffset + 1);
+        short sEnd = (short) (sValueOffset + sLen);
+        if (sEnd != (short) (offset + length)) {
+            ISOException.throwIt(SW_DATA_INVALID);
+        }
+
+        short normalizedSourceOffset = sValueOffset;
+        short normalizedSourceLength = sLen;
+        if (normalizedSourceLength > 1 && sig[normalizedSourceOffset] == 0x00) {
+            normalizedSourceOffset++;
+            normalizedSourceLength--;
+        }
+        if (normalizedSourceLength <= 0 || normalizedSourceLength > (short) Secp256k1.N.length) {
+            ISOException.throwIt(SW_DATA_INVALID);
+        }
+
+        if (!isHighS(sig, normalizedSourceOffset, normalizedSourceLength)) {
+            return length;
+        }
+
+        if (normalizedSourceLength != (short) Secp256k1.N.length) {
+            ISOException.throwIt(SW_DATA_INVALID);
+        }
+
+        short borrow = 0;
+        for (short i = (short) (Secp256k1.N.length - 1); i >= 0; i--) {
+            short nByte = (short) (Secp256k1.N[i] & 0xFF);
+            short sByte = (short) (sig[(short) (normalizedSourceOffset + i)] & 0xFF);
+            short diff = (short) (nByte - sByte - borrow);
+            if (diff < 0) {
+                diff = (short) (diff + 256);
+                borrow = 1;
+            } else {
+                borrow = 0;
+            }
+            sig[(short) (normalizedSourceOffset + i)] = (byte) diff;
+        }
+
+        short firstNonZero = 0;
+        while (firstNonZero < (short) (Secp256k1.N.length - 1)
+                && sig[(short) (normalizedSourceOffset + firstNonZero)] == 0x00) {
+            firstNonZero++;
+        }
+
+        short newSRawLength = (short) (Secp256k1.N.length - firstNonZero);
+        if (newSRawLength <= 0 || newSRawLength > sLen) {
+            ISOException.throwIt(SW_DATA_INVALID);
+        }
+
+        Util.arrayCopyNonAtomic(sig, (short) (normalizedSourceOffset + firstNonZero), sig, sValueOffset, newSRawLength);
+        sig[sLenOffset] = (byte) newSRawLength;
+        short removedBytes = (short) (sLen - newSRawLength);
+        sig[(short) (offset + 1)] = (byte) (seqLen - removedBytes);
+        return (short) (length - removedBytes);
     }
 
-    /**
-     * Compares two big-endian unsigned byte arrays.
-     * @return negative if a < b, positive if a > b, zero if equal
-     */
-    private short compareBigInt(byte[] a, byte[] b) {
-        short maxLen = (short) (a.length >= b.length ? a.length : b.length);
-        for (short i = 0; i < maxLen; i++) {
-            short av = (i < a.length) ? (short) (a[i] & 0xFF) : 0;
-            short bv = (i < b.length) ? (short) (b[i] & 0xFF) : 0;
-            if (av != bv) {
-                return (short) (av - bv);
+    private boolean isHighS(byte[] sig, short sOffset, short sLength) {
+        if (sLength < (short) Secp256k1.N.length) {
+            return false;
+        }
+        for (short i = 0; i < (short) Secp256k1.N.length; i++) {
+            short sv = (short) (sig[(short) (sOffset + i)] & 0xFF);
+            short hv = (short) (Secp256k1.N_DIV_2[i] & 0xFF);
+            if (sv > hv) {
+                return true;
+            }
+            if (sv < hv) {
+                return false;
             }
         }
-        return (short) (a.length - b.length);
+        return false;
     }
 }

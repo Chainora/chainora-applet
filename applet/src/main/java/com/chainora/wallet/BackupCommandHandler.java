@@ -36,16 +36,23 @@ public class BackupCommandHandler implements CommandHandler {
     private static final short OFFSET_CERT_SIGNATURE_LENGTH =
             (short) (OFFSET_CERT_CAPABILITIES + 1);
 
-    private static final short OFFSET_LINK_SESSION_ID = 0;
-    private static final short OFFSET_LINK_DEVICE_ID =
+    private static final short OFFSET_LINK_VERSION = 0;
+    private static final short OFFSET_LINK_SESSION_ID = (short) (OFFSET_LINK_VERSION + 1);
+    private static final short OFFSET_LINK_COUNTER =
             (short) (OFFSET_LINK_SESSION_ID + Configuration.SESSION_ID_LENGTH);
+    private static final short OFFSET_LINK_DEVICE_ID =
+            (short) (OFFSET_LINK_COUNTER + Configuration.COUNTER_LENGTH);
     private static final short OFFSET_LINK_PUBLIC =
             (short) (OFFSET_LINK_DEVICE_ID + Configuration.DEVICE_ID_LENGTH);
     private static final short OFFSET_LINK_NONCE =
             (short) (OFFSET_LINK_PUBLIC + Configuration.PUBLIC_KEY_UNCOMPRESSED_LENGTH);
 
     private static final short OFFSET_ENVELOPE_VERSION = 0;
-    private static final short OFFSET_ENVELOPE_SOURCE_DEVICE_ID = 1;
+    private static final short OFFSET_ENVELOPE_SESSION_ID = (short) (OFFSET_ENVELOPE_VERSION + 1);
+    private static final short OFFSET_ENVELOPE_COUNTER =
+            (short) (OFFSET_ENVELOPE_SESSION_ID + Configuration.SESSION_ID_LENGTH);
+    private static final short OFFSET_ENVELOPE_SOURCE_DEVICE_ID =
+            (short) (OFFSET_ENVELOPE_COUNTER + Configuration.COUNTER_LENGTH);
     private static final short OFFSET_ENVELOPE_DEST_DEVICE_ID =
             (short) (OFFSET_ENVELOPE_SOURCE_DEVICE_ID + Configuration.DEVICE_ID_LENGTH);
     private static final short OFFSET_ENVELOPE_IV =
@@ -82,20 +89,23 @@ public class BackupCommandHandler implements CommandHandler {
     private final byte[] localSessionId;
     private final byte[] localNonce;
     private final byte[] peerDeviceId;
+    private final byte[] peerSessionId;
     private final byte[] peerNonce;
 
     private boolean localLinkProofGenerated;
     private boolean peerCertificateLoaded;
     private boolean peerLinkProofLoaded;
     private short sessionCounter;
+    private short peerProofCounter;
+    private byte loadPeerLinkProofFailureCount;
+    private byte backupImportFailureCount;
+    private boolean loadPeerLinkProofLocked;
+    private boolean backupImportLocked;
 
     private final byte[] sharedSecret;
     private final byte[] derivedSessionKey;
-    private final byte[] sessionIv;
     private final byte[] payloadBuffer;
-    private final byte[] cipherBuffer;
     private final byte[] keyScratch;
-    private final byte[] privateKeyScratch;
 
     public BackupCommandHandler(
             PinValidator pinValidator,
@@ -142,17 +152,17 @@ public class BackupCommandHandler implements CommandHandler {
         this.localSessionId = new byte[Configuration.SESSION_ID_LENGTH];
         this.localNonce = new byte[Configuration.NONCE_LENGTH];
         this.peerDeviceId = new byte[Configuration.DEVICE_ID_LENGTH];
+        this.peerSessionId = new byte[Configuration.SESSION_ID_LENGTH];
         this.peerNonce = new byte[Configuration.NONCE_LENGTH];
 
         this.sessionCounter = 1;
 
-        this.sharedSecret = JCSystem.makeTransientByteArray((short) 80, JCSystem.CLEAR_ON_DESELECT);
+        this.sharedSecret = JCSystem.makeTransientByteArray(
+                Configuration.PUBLIC_KEY_UNCOMPRESSED_LENGTH,
+                JCSystem.CLEAR_ON_DESELECT);
         this.derivedSessionKey = JCSystem.makeTransientByteArray((short) MessageDigest.LENGTH_SHA_256, JCSystem.CLEAR_ON_DESELECT);
-        this.sessionIv = JCSystem.makeTransientByteArray(Configuration.NONCE_LENGTH, JCSystem.CLEAR_ON_DESELECT);
         this.payloadBuffer = JCSystem.makeTransientByteArray(Configuration.MAX_BACKUP_CIPHERTEXT_LENGTH, JCSystem.CLEAR_ON_DESELECT);
-        this.cipherBuffer = JCSystem.makeTransientByteArray(Configuration.MAX_BACKUP_CIPHERTEXT_LENGTH, JCSystem.CLEAR_ON_DESELECT);
         this.keyScratch = JCSystem.makeTransientByteArray(Configuration.PUBLIC_KEY_UNCOMPRESSED_LENGTH, JCSystem.CLEAR_ON_DESELECT);
-        this.privateKeyScratch = JCSystem.makeTransientByteArray(Configuration.PRIVATE_KEY_LENGTH, JCSystem.CLEAR_ON_DESELECT);
 
         randomData.generateData(deviceId, (short) 0, Configuration.DEVICE_ID_LENGTH);
         deviceAuthKeyPair.genKeyPair();
@@ -215,7 +225,7 @@ public class BackupCommandHandler implements CommandHandler {
     private void sendFactoryCsr(APDU apdu) {
         byte[] buffer = apdu.getBuffer();
         short offset = 0;
-        buffer[offset++] = Configuration.BACKUP_FORMAT_VERSION;
+        buffer[offset++] = Configuration.DEVICE_CERT_FORMAT_VERSION;
         Util.arrayCopyNonAtomic(deviceId, (short) 0, buffer, offset, Configuration.DEVICE_ID_LENGTH);
         offset += Configuration.DEVICE_ID_LENGTH;
 
@@ -263,6 +273,7 @@ public class BackupCommandHandler implements CommandHandler {
     private void startLinkProof(APDU apdu) {
         ensureDeviceCertificateInstalled();
         clearPeerVerificationState();
+        resetSessionGuards();
 
         setCurveParameters(sessionLinkPrivateKey);
         setCurveParameters(sessionLinkPublicKey);
@@ -272,8 +283,11 @@ public class BackupCommandHandler implements CommandHandler {
 
         byte[] buffer = apdu.getBuffer();
         short offset = 0;
+        buffer[offset++] = Configuration.BACKUP_PROTOCOL_VERSION;
         Util.arrayCopyNonAtomic(localSessionId, (short) 0, buffer, offset, Configuration.SESSION_ID_LENGTH);
         offset += Configuration.SESSION_ID_LENGTH;
+        writeShort(buffer, offset, Configuration.LINK_PROOF_COUNTER);
+        offset += Configuration.COUNTER_LENGTH;
         Util.arrayCopyNonAtomic(deviceId, (short) 0, buffer, offset, Configuration.DEVICE_ID_LENGTH);
         offset += Configuration.DEVICE_ID_LENGTH;
 
@@ -320,53 +334,78 @@ public class BackupCommandHandler implements CommandHandler {
 
         peerCertificateLoaded = true;
         peerLinkProofLoaded = false;
+        peerProofCounter = 0;
         peerSessionLinkPublicKey.clearKey();
+        Util.arrayFillNonAtomic(peerSessionId, (short) 0, Configuration.SESSION_ID_LENGTH, (byte) 0x00);
         Util.arrayFillNonAtomic(peerNonce, (short) 0, Configuration.NONCE_LENGTH, (byte) 0x00);
     }
 
     private void loadPeerLinkProof(APDU apdu) {
+        if (loadPeerLinkProofLocked) {
+            ISOException.throwIt(SW_CONDITIONS);
+        }
         if (!localLinkProofGenerated || !peerCertificateLoaded) {
             ISOException.throwIt(SW_CONDITIONS);
         }
-
-        short bytesRead = ApduUtils.receiveData(apdu);
-        byte[] buffer = apdu.getBuffer();
-        short dataOffset = ISO7816.OFFSET_CDATA;
-
-        if (bytesRead < (short) (Configuration.LINK_PROOF_BODY_LENGTH + 1 + 8)) {
-            ISOException.throwIt(SW_WRONG_LENGTH);
+        if (peerLinkProofLoaded) {
+            ISOException.throwIt(SW_CONDITIONS);
         }
 
-        short signatureLengthOffset = (short) (dataOffset + Configuration.LINK_PROOF_BODY_LENGTH);
-        short signatureLength = (short) (buffer[signatureLengthOffset] & 0xFF);
-        if (signatureLength <= 0 || signatureLength > Configuration.MAX_DER_SIGNATURE_LENGTH) {
-            ISOException.throwIt(SW_DATA_INVALID);
+        try {
+            short bytesRead = ApduUtils.receiveData(apdu);
+            byte[] buffer = apdu.getBuffer();
+            short dataOffset = ISO7816.OFFSET_CDATA;
+
+            if (bytesRead < (short) (Configuration.LINK_PROOF_BODY_LENGTH + 1 + 8)) {
+                ISOException.throwIt(SW_WRONG_LENGTH);
+            }
+
+            if (buffer[(short) (dataOffset + OFFSET_LINK_VERSION)] != Configuration.BACKUP_PROTOCOL_VERSION) {
+                ISOException.throwIt(SW_DATA_INVALID);
+            }
+
+            short proofCounter = readShort(buffer, (short) (dataOffset + OFFSET_LINK_COUNTER));
+            if (proofCounter != Configuration.LINK_PROOF_COUNTER) {
+                ISOException.throwIt(SW_SECURITY);
+            }
+
+            short signatureLengthOffset = (short) (dataOffset + Configuration.LINK_PROOF_BODY_LENGTH);
+            short signatureLength = (short) (buffer[signatureLengthOffset] & 0xFF);
+            if (signatureLength <= 0 || signatureLength > Configuration.MAX_DER_SIGNATURE_LENGTH) {
+                ISOException.throwIt(SW_DATA_INVALID);
+            }
+
+            short expectedLength = (short) (Configuration.LINK_PROOF_BODY_LENGTH + 1 + signatureLength);
+            if (bytesRead != expectedLength) {
+                ISOException.throwIt(SW_WRONG_LENGTH);
+            }
+
+            if (Util.arrayCompare(buffer, (short) (dataOffset + OFFSET_LINK_DEVICE_ID),
+                    peerDeviceId, (short) 0, Configuration.DEVICE_ID_LENGTH) != 0) {
+                ISOException.throwIt(SW_SECURITY);
+            }
+
+            verifySignature.init(peerDeviceAuthPublicKey, Signature.MODE_VERIFY);
+            if (!verifySignature.verify(buffer, dataOffset, Configuration.LINK_PROOF_BODY_LENGTH,
+                    buffer, (short) (signatureLengthOffset + 1), signatureLength)) {
+                ISOException.throwIt(SW_SECURITY);
+            }
+
+            setCurveParameters(peerSessionLinkPublicKey);
+            peerSessionLinkPublicKey.setW(buffer, (short) (dataOffset + OFFSET_LINK_PUBLIC),
+                    Configuration.PUBLIC_KEY_UNCOMPRESSED_LENGTH);
+
+            Util.arrayCopyNonAtomic(buffer, (short) (dataOffset + OFFSET_LINK_SESSION_ID),
+                    peerSessionId, (short) 0, Configuration.SESSION_ID_LENGTH);
+            Util.arrayCopyNonAtomic(buffer, (short) (dataOffset + OFFSET_LINK_NONCE),
+                    peerNonce, (short) 0, Configuration.NONCE_LENGTH);
+            peerProofCounter = proofCounter;
+            peerLinkProofLoaded = true;
+            loadPeerLinkProofFailureCount = 0;
+        } catch (ISOException e) {
+            registerLoadPeerLinkProofFailure(e.getReason());
+            throw e;
         }
-
-        short expectedLength = (short) (Configuration.LINK_PROOF_BODY_LENGTH + 1 + signatureLength);
-        if (bytesRead != expectedLength) {
-            ISOException.throwIt(SW_WRONG_LENGTH);
-        }
-
-        if (Util.arrayCompare(buffer, (short) (dataOffset + OFFSET_LINK_DEVICE_ID),
-                peerDeviceId, (short) 0, Configuration.DEVICE_ID_LENGTH) != 0) {
-            ISOException.throwIt(SW_SECURITY);
-        }
-
-        verifySignature.init(peerDeviceAuthPublicKey, Signature.MODE_VERIFY);
-        if (!verifySignature.verify(buffer, dataOffset, Configuration.LINK_PROOF_BODY_LENGTH,
-                buffer, (short) (signatureLengthOffset + 1), signatureLength)) {
-            ISOException.throwIt(SW_SECURITY);
-        }
-
-        setCurveParameters(peerSessionLinkPublicKey);
-        peerSessionLinkPublicKey.setW(buffer, (short) (dataOffset + OFFSET_LINK_PUBLIC),
-                Configuration.PUBLIC_KEY_UNCOMPRESSED_LENGTH);
-
-        Util.arrayCopyNonAtomic(buffer, (short) (dataOffset + OFFSET_LINK_NONCE),
-                peerNonce, (short) 0, Configuration.NONCE_LENGTH);
-
-        peerLinkProofLoaded = true;
     }
 
     private void exportBackupEnvelope(APDU apdu) {
@@ -374,28 +413,42 @@ public class BackupCommandHandler implements CommandHandler {
         ensureExportImportPreconditions();
         ensureWalletKeyAvailable();
 
-        deriveBackupSessionKey(deviceId, peerDeviceId, localNonce, peerNonce);
+        deriveBackupSessionKey(
+                deviceId, peerDeviceId,
+                localNonce, peerNonce,
+                localSessionId, peerSessionId,
+                Configuration.LINK_PROOF_COUNTER, peerProofCounter);
 
         short payloadLength = buildBackupPayload();
         short paddedLength = applyPkcs7Padding(payloadLength);
 
-        randomData.generateData(sessionIv, (short) 0, Configuration.NONCE_LENGTH);
-        aesKey.setKey(derivedSessionKey, (short) 0);
-        aesCipher.init(aesKey, Cipher.MODE_ENCRYPT, sessionIv, (short) 0, Configuration.NONCE_LENGTH);
-        short ciphertextLength = aesCipher.doFinal(payloadBuffer, (short) 0, paddedLength, cipherBuffer, (short) 0);
-
         byte[] buffer = apdu.getBuffer();
         short offset = 0;
-        buffer[offset++] = Configuration.BACKUP_FORMAT_VERSION;
+        buffer[offset++] = Configuration.BACKUP_PROTOCOL_VERSION;
+        Util.arrayCopyNonAtomic(localSessionId, (short) 0, buffer, offset, Configuration.SESSION_ID_LENGTH);
+        offset += Configuration.SESSION_ID_LENGTH;
+        writeShort(buffer, offset, Configuration.BACKUP_ENVELOPE_COUNTER);
+        offset += Configuration.COUNTER_LENGTH;
         Util.arrayCopyNonAtomic(deviceId, (short) 0, buffer, offset, Configuration.DEVICE_ID_LENGTH);
         offset += Configuration.DEVICE_ID_LENGTH;
         Util.arrayCopyNonAtomic(peerDeviceId, (short) 0, buffer, offset, Configuration.DEVICE_ID_LENGTH);
         offset += Configuration.DEVICE_ID_LENGTH;
-        Util.arrayCopyNonAtomic(sessionIv, (short) 0, buffer, offset, Configuration.NONCE_LENGTH);
+
+        randomData.generateData(buffer, offset, Configuration.NONCE_LENGTH);
+        aesKey.setKey(derivedSessionKey, (short) 0);
+        aesCipher.init(aesKey, Cipher.MODE_ENCRYPT, buffer, offset, Configuration.NONCE_LENGTH);
         offset += Configuration.NONCE_LENGTH;
-        buffer[offset++] = (byte) ciphertextLength;
-        Util.arrayCopyNonAtomic(cipherBuffer, (short) 0, buffer, offset, ciphertextLength);
-        offset += ciphertextLength;
+
+        short ciphertextLengthOffset = offset;
+        buffer[offset++] = 0x00;
+        short ciphertextOffset = offset;
+        short ciphertextLength = aesCipher.doFinal(payloadBuffer, (short) 0, paddedLength, buffer, ciphertextOffset);
+        if (ciphertextLength <= 0 || ciphertextLength > Configuration.MAX_BACKUP_CIPHERTEXT_LENGTH) {
+            ISOException.throwIt(SW_DATA_INVALID);
+        }
+
+        buffer[ciphertextLengthOffset] = (byte) ciphertextLength;
+        offset = (short) (ciphertextOffset + ciphertextLength);
 
         short bodyLength = offset;
         deviceSignature.init(deviceAuthPrivateKey, Signature.MODE_SIGN);
@@ -407,103 +460,129 @@ public class BackupCommandHandler implements CommandHandler {
 
         clearSecretBuffers();
         ApduUtils.sendData(apdu, (short) 0, (short) (bodyLength + 1 + signatureLength));
+        clearLinkStateInternal();
     }
 
     private void importBackupEnvelope(APDU apdu) {
         ensureZeroP1P2(apdu);
-        ensureExportImportPreconditions();
-
-        short bytesRead = ApduUtils.receiveData(apdu);
-        byte[] buffer = apdu.getBuffer();
-        short dataOffset = ISO7816.OFFSET_CDATA;
-
-        if (bytesRead < (short) (OFFSET_ENVELOPE_CIPHER + 1 + 1 + 8)) {
-            ISOException.throwIt(SW_WRONG_LENGTH);
-        }
-
-        if (buffer[(short) (dataOffset + OFFSET_ENVELOPE_VERSION)] != Configuration.BACKUP_FORMAT_VERSION) {
-            ISOException.throwIt(SW_DATA_INVALID);
-        }
-
-        short ciphertextLength = (short) (buffer[(short) (dataOffset + OFFSET_ENVELOPE_CIPHER_LENGTH)] & 0xFF);
-        if (ciphertextLength <= 0 || ciphertextLength > Configuration.MAX_BACKUP_CIPHERTEXT_LENGTH) {
-            ISOException.throwIt(SW_WRONG_LENGTH);
-        }
-
-        short signatureLengthOffset = (short) (dataOffset + OFFSET_ENVELOPE_CIPHER + ciphertextLength);
-        if (signatureLengthOffset >= (short) (dataOffset + bytesRead)) {
-            ISOException.throwIt(SW_WRONG_LENGTH);
-        }
-
-        short signatureLength = (short) (buffer[signatureLengthOffset] & 0xFF);
-        if (signatureLength <= 0 || signatureLength > Configuration.MAX_DER_SIGNATURE_LENGTH) {
-            ISOException.throwIt(SW_DATA_INVALID);
-        }
-
-        short expectedLength = (short) (OFFSET_ENVELOPE_CIPHER + ciphertextLength + 1 + signatureLength);
-        if (bytesRead != expectedLength) {
-            ISOException.throwIt(SW_WRONG_LENGTH);
-        }
-
-        if (Util.arrayCompare(buffer, (short) (dataOffset + OFFSET_ENVELOPE_SOURCE_DEVICE_ID),
-                peerDeviceId, (short) 0, Configuration.DEVICE_ID_LENGTH) != 0) {
-            ISOException.throwIt(SW_SECURITY);
-        }
-
-        if (Util.arrayCompare(buffer, (short) (dataOffset + OFFSET_ENVELOPE_DEST_DEVICE_ID),
-                deviceId, (short) 0, Configuration.DEVICE_ID_LENGTH) != 0) {
-            ISOException.throwIt(SW_SECURITY);
-        }
-
-        verifySignature.init(peerDeviceAuthPublicKey, Signature.MODE_VERIFY);
-        if (!verifySignature.verify(buffer, dataOffset, (short) (OFFSET_ENVELOPE_CIPHER + ciphertextLength),
-                buffer, (short) (signatureLengthOffset + 1), signatureLength)) {
-            ISOException.throwIt(SW_SECURITY);
-        }
-
-        deriveBackupSessionKey(peerDeviceId, deviceId, peerNonce, localNonce);
-
-        aesKey.setKey(derivedSessionKey, (short) 0);
-        aesCipher.init(aesKey, Cipher.MODE_DECRYPT, buffer, (short) (dataOffset + OFFSET_ENVELOPE_IV),
-                Configuration.NONCE_LENGTH);
-        short plainLengthWithPadding = aesCipher.doFinal(buffer, (short) (dataOffset + OFFSET_ENVELOPE_CIPHER),
-                ciphertextLength, payloadBuffer, (short) 0);
-
-        short plainLength = removePkcs7Padding(plainLengthWithPadding);
-        if (plainLength != Configuration.BACKUP_PAYLOAD_LENGTH) {
-            ISOException.throwIt(SW_DATA_INVALID);
-        }
-
-        if (payloadBuffer[0] != Configuration.BACKUP_FORMAT_VERSION) {
-            ISOException.throwIt(SW_DATA_INVALID);
-        }
-
-        if (payloadBuffer[(short) (1 + Configuration.PRIVATE_KEY_LENGTH)] != 0x04) {
-            ISOException.throwIt(SW_DATA_INVALID);
-        }
-
-        if (walletPrivateKey.isInitialized() && walletPublicKey.isInitialized() && !isExistingWalletKeyEqual()) {
+        if (backupImportLocked) {
             ISOException.throwIt(SW_CONDITIONS);
         }
+        ensureExportImportPreconditions();
 
-        walletPrivateKey.setS(payloadBuffer, (short) 1, Configuration.PRIVATE_KEY_LENGTH);
-        walletPublicKey.setW(payloadBuffer, (short) (1 + Configuration.PRIVATE_KEY_LENGTH),
-                Configuration.PUBLIC_KEY_UNCOMPRESSED_LENGTH);
+        try {
+            short bytesRead = ApduUtils.receiveData(apdu);
+            byte[] buffer = apdu.getBuffer();
+            short dataOffset = ISO7816.OFFSET_CDATA;
 
-        clearSecretBuffers();
+            if (bytesRead < (short) (OFFSET_ENVELOPE_CIPHER + 1 + 1 + 8)) {
+                ISOException.throwIt(SW_WRONG_LENGTH);
+            }
+
+            if (buffer[(short) (dataOffset + OFFSET_ENVELOPE_VERSION)] != Configuration.BACKUP_PROTOCOL_VERSION) {
+                ISOException.throwIt(SW_DATA_INVALID);
+            }
+
+            if (Util.arrayCompare(buffer, (short) (dataOffset + OFFSET_ENVELOPE_SESSION_ID),
+                    peerSessionId, (short) 0, Configuration.SESSION_ID_LENGTH) != 0) {
+                ISOException.throwIt(SW_SECURITY);
+            }
+
+            short envelopeCounter = readShort(buffer, (short) (dataOffset + OFFSET_ENVELOPE_COUNTER));
+            if (envelopeCounter != Configuration.BACKUP_ENVELOPE_COUNTER) {
+                ISOException.throwIt(SW_SECURITY);
+            }
+
+            short ciphertextLength = (short) (buffer[(short) (dataOffset + OFFSET_ENVELOPE_CIPHER_LENGTH)] & 0xFF);
+            if (ciphertextLength <= 0 || ciphertextLength > Configuration.MAX_BACKUP_CIPHERTEXT_LENGTH) {
+                ISOException.throwIt(SW_WRONG_LENGTH);
+            }
+
+            short signatureLengthOffset = (short) (dataOffset + OFFSET_ENVELOPE_CIPHER + ciphertextLength);
+            if (signatureLengthOffset >= (short) (dataOffset + bytesRead)) {
+                ISOException.throwIt(SW_WRONG_LENGTH);
+            }
+
+            short signatureLength = (short) (buffer[signatureLengthOffset] & 0xFF);
+            if (signatureLength <= 0 || signatureLength > Configuration.MAX_DER_SIGNATURE_LENGTH) {
+                ISOException.throwIt(SW_DATA_INVALID);
+            }
+
+            short expectedLength = (short) (OFFSET_ENVELOPE_CIPHER + ciphertextLength + 1 + signatureLength);
+            if (bytesRead != expectedLength) {
+                ISOException.throwIt(SW_WRONG_LENGTH);
+            }
+
+            if (Util.arrayCompare(buffer, (short) (dataOffset + OFFSET_ENVELOPE_SOURCE_DEVICE_ID),
+                    peerDeviceId, (short) 0, Configuration.DEVICE_ID_LENGTH) != 0) {
+                ISOException.throwIt(SW_SECURITY);
+            }
+
+            if (Util.arrayCompare(buffer, (short) (dataOffset + OFFSET_ENVELOPE_DEST_DEVICE_ID),
+                    deviceId, (short) 0, Configuration.DEVICE_ID_LENGTH) != 0) {
+                ISOException.throwIt(SW_SECURITY);
+            }
+
+            verifySignature.init(peerDeviceAuthPublicKey, Signature.MODE_VERIFY);
+            if (!verifySignature.verify(buffer, dataOffset, (short) (OFFSET_ENVELOPE_CIPHER + ciphertextLength),
+                    buffer, (short) (signatureLengthOffset + 1), signatureLength)) {
+                ISOException.throwIt(SW_SECURITY);
+            }
+
+            deriveBackupSessionKey(
+                    peerDeviceId, deviceId,
+                    peerNonce, localNonce,
+                    peerSessionId, localSessionId,
+                    peerProofCounter, Configuration.LINK_PROOF_COUNTER);
+
+            aesKey.setKey(derivedSessionKey, (short) 0);
+            aesCipher.init(aesKey, Cipher.MODE_DECRYPT, buffer, (short) (dataOffset + OFFSET_ENVELOPE_IV),
+                    Configuration.NONCE_LENGTH);
+            short plainLengthWithPadding = aesCipher.doFinal(buffer, (short) (dataOffset + OFFSET_ENVELOPE_CIPHER),
+                    ciphertextLength, payloadBuffer, (short) 0);
+
+            short plainLength = removePkcs7Padding(plainLengthWithPadding);
+            if (plainLength != Configuration.BACKUP_PAYLOAD_LENGTH) {
+                ISOException.throwIt(SW_DATA_INVALID);
+            }
+
+            if (payloadBuffer[0] != Configuration.BACKUP_PROTOCOL_VERSION) {
+                ISOException.throwIt(SW_DATA_INVALID);
+            }
+
+            if (payloadBuffer[(short) (1 + Configuration.PRIVATE_KEY_LENGTH)] != 0x04) {
+                ISOException.throwIt(SW_DATA_INVALID);
+            }
+
+            if (walletPrivateKey.isInitialized() && walletPublicKey.isInitialized() && !isExistingWalletKeyEqual()) {
+                ISOException.throwIt(SW_CONDITIONS);
+            }
+
+            walletPrivateKey.setS(payloadBuffer, (short) 1, Configuration.PRIVATE_KEY_LENGTH);
+            walletPublicKey.setW(payloadBuffer, (short) (1 + Configuration.PRIVATE_KEY_LENGTH),
+                    Configuration.PUBLIC_KEY_UNCOMPRESSED_LENGTH);
+
+            backupImportFailureCount = 0;
+            clearLinkStateInternal();
+        } catch (ISOException e) {
+            registerBackupImportFailure(e.getReason());
+            throw e;
+        } finally {
+            clearSecretBuffers();
+        }
     }
 
     private short buildBackupPayload() {
-        payloadBuffer[0] = Configuration.BACKUP_FORMAT_VERSION;
+        payloadBuffer[0] = Configuration.BACKUP_PROTOCOL_VERSION;
 
-        short privateLength = walletPrivateKey.getS(privateKeyScratch, (short) 0);
+        short privateLength = walletPrivateKey.getS(keyScratch, (short) 0);
         if (privateLength <= 0 || privateLength > Configuration.PRIVATE_KEY_LENGTH) {
             ISOException.throwIt(SW_DATA_INVALID);
         }
 
         Util.arrayFillNonAtomic(payloadBuffer, (short) 1, Configuration.PRIVATE_KEY_LENGTH, (byte) 0x00);
         short privateCopyOffset = (short) (1 + Configuration.PRIVATE_KEY_LENGTH - privateLength);
-        Util.arrayCopyNonAtomic(privateKeyScratch, (short) 0, payloadBuffer, privateCopyOffset, privateLength);
+        Util.arrayCopyNonAtomic(keyScratch, (short) 0, payloadBuffer, privateCopyOffset, privateLength);
 
         short publicLength = walletPublicKey.getW(keyScratch, (short) 0);
         if (publicLength != Configuration.PUBLIC_KEY_UNCOMPRESSED_LENGTH) {
@@ -553,8 +632,11 @@ public class BackupCommandHandler implements CommandHandler {
         return (short) (lengthWithPadding - padLength);
     }
 
-    private void deriveBackupSessionKey(byte[] sourceDeviceId, byte[] destinationDeviceId,
-            byte[] sourceNonce, byte[] destinationNonce) {
+    private void deriveBackupSessionKey(
+            byte[] sourceDeviceId, byte[] destinationDeviceId,
+            byte[] sourceNonce, byte[] destinationNonce,
+            byte[] sourceSessionId, byte[] destinationSessionId,
+            short sourceProofCounter, short destinationProofCounter) {
         short peerPublicLength = peerSessionLinkPublicKey.getW(keyScratch, (short) 0);
         if (peerPublicLength != Configuration.PUBLIC_KEY_UNCOMPRESSED_LENGTH) {
             ISOException.throwIt(SW_DATA_INVALID);
@@ -573,19 +655,25 @@ public class BackupCommandHandler implements CommandHandler {
         sha256Digest.update(destinationDeviceId, (short) 0, Configuration.DEVICE_ID_LENGTH);
         sha256Digest.update(sourceNonce, (short) 0, Configuration.NONCE_LENGTH);
         sha256Digest.update(destinationNonce, (short) 0, Configuration.NONCE_LENGTH);
+        sha256Digest.update(sourceSessionId, (short) 0, Configuration.SESSION_ID_LENGTH);
+        sha256Digest.update(destinationSessionId, (short) 0, Configuration.SESSION_ID_LENGTH);
+        writeShort(keyScratch, (short) 0, sourceProofCounter);
+        sha256Digest.update(keyScratch, (short) 0, Configuration.COUNTER_LENGTH);
+        writeShort(keyScratch, (short) 0, destinationProofCounter);
+        sha256Digest.update(keyScratch, (short) 0, Configuration.COUNTER_LENGTH);
         sha256Digest.doFinal(Configuration.BACKUP_KDF_LABEL, (short) 0, (short) Configuration.BACKUP_KDF_LABEL.length,
                 derivedSessionKey, (short) 0);
     }
 
     private boolean isExistingWalletKeyEqual() {
-        short existingPrivateLength = walletPrivateKey.getS(privateKeyScratch, (short) 0);
+        short existingPrivateLength = walletPrivateKey.getS(keyScratch, (short) 0);
         if (existingPrivateLength <= 0 || existingPrivateLength > Configuration.PRIVATE_KEY_LENGTH) {
             return false;
         }
 
         short leftPad = (short) (Configuration.PRIVATE_KEY_LENGTH - existingPrivateLength);
         for (short i = 0; i < Configuration.PRIVATE_KEY_LENGTH; i++) {
-            byte existing = (i < leftPad) ? (byte) 0x00 : privateKeyScratch[(short) (i - leftPad)];
+            byte existing = (i < leftPad) ? (byte) 0x00 : keyScratch[(short) (i - leftPad)];
             byte incoming = payloadBuffer[(short) (1 + i)];
             if (existing != incoming) {
                 return false;
@@ -608,7 +696,7 @@ public class BackupCommandHandler implements CommandHandler {
             return false;
         }
 
-        if (buffer[(short) (offset + OFFSET_CERT_VERSION)] != Configuration.BACKUP_FORMAT_VERSION) {
+        if (buffer[(short) (offset + OFFSET_CERT_VERSION)] != Configuration.DEVICE_CERT_FORMAT_VERSION) {
             return false;
         }
 
@@ -669,6 +757,7 @@ public class BackupCommandHandler implements CommandHandler {
     private void clearLinkStateInternal() {
         localLinkProofGenerated = false;
         clearPeerVerificationState();
+        resetSessionGuards();
 
         Util.arrayFillNonAtomic(localSessionId, (short) 0, Configuration.SESSION_ID_LENGTH, (byte) 0x00);
         Util.arrayFillNonAtomic(localNonce, (short) 0, Configuration.NONCE_LENGTH, (byte) 0x00);
@@ -679,8 +768,10 @@ public class BackupCommandHandler implements CommandHandler {
     private void clearPeerVerificationState() {
         peerCertificateLoaded = false;
         peerLinkProofLoaded = false;
+        peerProofCounter = 0;
 
         Util.arrayFillNonAtomic(peerDeviceId, (short) 0, Configuration.DEVICE_ID_LENGTH, (byte) 0x00);
+        Util.arrayFillNonAtomic(peerSessionId, (short) 0, Configuration.SESSION_ID_LENGTH, (byte) 0x00);
         Util.arrayFillNonAtomic(peerNonce, (short) 0, Configuration.NONCE_LENGTH, (byte) 0x00);
         peerDeviceAuthPublicKey.clearKey();
         peerSessionLinkPublicKey.clearKey();
@@ -689,11 +780,8 @@ public class BackupCommandHandler implements CommandHandler {
     private void clearSecretBuffers() {
         Util.arrayFillNonAtomic(sharedSecret, (short) 0, (short) sharedSecret.length, (byte) 0x00);
         Util.arrayFillNonAtomic(derivedSessionKey, (short) 0, (short) derivedSessionKey.length, (byte) 0x00);
-        Util.arrayFillNonAtomic(sessionIv, (short) 0, Configuration.NONCE_LENGTH, (byte) 0x00);
         Util.arrayFillNonAtomic(payloadBuffer, (short) 0, (short) payloadBuffer.length, (byte) 0x00);
-        Util.arrayFillNonAtomic(cipherBuffer, (short) 0, (short) cipherBuffer.length, (byte) 0x00);
         Util.arrayFillNonAtomic(keyScratch, (short) 0, (short) keyScratch.length, (byte) 0x00);
-        Util.arrayFillNonAtomic(privateKeyScratch, (short) 0, (short) privateKeyScratch.length, (byte) 0x00);
     }
 
     private void ensureZeroP1P2(APDU apdu) {
@@ -722,6 +810,53 @@ public class BackupCommandHandler implements CommandHandler {
         if (!localLinkProofGenerated || !peerCertificateLoaded || !peerLinkProofLoaded) {
             ISOException.throwIt(SW_CONDITIONS);
         }
+        if (peerProofCounter != Configuration.LINK_PROOF_COUNTER) {
+            ISOException.throwIt(SW_CONDITIONS);
+        }
+    }
+
+    private void resetSessionGuards() {
+        loadPeerLinkProofFailureCount = 0;
+        backupImportFailureCount = 0;
+        loadPeerLinkProofLocked = false;
+        backupImportLocked = false;
+    }
+
+    private void registerLoadPeerLinkProofFailure(short sw) {
+        if (!isTrackableFailure(sw)) {
+            return;
+        }
+        loadPeerLinkProofFailureCount++;
+        if (loadPeerLinkProofFailureCount >= Configuration.BACKUP_FAILURE_THRESHOLD) {
+            loadPeerLinkProofLocked = true;
+            ISOException.throwIt(SW_CONDITIONS);
+        }
+    }
+
+    private void registerBackupImportFailure(short sw) {
+        if (!isTrackableFailure(sw)) {
+            return;
+        }
+        backupImportFailureCount++;
+        if (backupImportFailureCount >= Configuration.BACKUP_FAILURE_THRESHOLD) {
+            backupImportLocked = true;
+            ISOException.throwIt(SW_CONDITIONS);
+        }
+    }
+
+    private boolean isTrackableFailure(short sw) {
+        return sw == SW_WRONG_LENGTH || sw == SW_DATA_INVALID || sw == SW_SECURITY;
+    }
+
+    private void writeShort(byte[] buffer, short offset, short value) {
+        buffer[offset] = (byte) (value >> 8);
+        buffer[(short) (offset + 1)] = (byte) (value & 0xFF);
+    }
+
+    private short readShort(byte[] buffer, short offset) {
+        short high = (short) (buffer[offset] & 0xFF);
+        short low = (short) (buffer[(short) (offset + 1)] & 0xFF);
+        return (short) ((short) (high << 8) | low);
     }
 
     private void setCurveParameters(ECKey key) {

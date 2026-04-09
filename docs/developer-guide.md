@@ -349,10 +349,13 @@ public class Secp256k1 {
 ### 5.2. Bảo mật
 
 **Low-S Normalization**
+- Canonicalization now compares full 32-byte big-int `S` against `N/2` before normalization.
 - Signature được normalize để `s <= n/2`
 - Ngăn chặn transaction malleability (tạo nhiều sig hợp lệ từ 1 transaction)
 
 **Certificate Chain + ECDH Backup**
+- Backup protocol v2 binds `sessionId/counter` into KDF and signed envelope/link-proof payload.
+- Per-session DoS guard: `LOAD_PEER_LINK_PROOF` and `BACKUP_IMPORT` lock after 3 invalid attempts until link-state reset.
 - Mỗi card có `deviceAuth` keypair riêng, cert được ký bởi root key của Chainora
 - Card chỉ tin peer sau khi verify: root -> peer cert -> peer link proof
 - Session key backup được dẫn xuất bằng ECDH từ link key ephemeral (per-session)

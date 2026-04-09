@@ -36,6 +36,6 @@ public final class ApduConstants {
     public static final byte P1_CLEAR_LINK_STATE = 0x04;
 
     // APDU Constants
-    public static final byte CLA = 0x00;
+    public static final byte CLA = (byte) 0x80;
     public static final int SW_SUCCESS = 0x9000;
 }
