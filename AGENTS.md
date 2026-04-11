@@ -94,6 +94,18 @@ Test behavior in this repo:
   - client APDU adapters/constants
   - tests
   - `docs/apdu-command.md`
+- `docs/apdu-command.md` is the canonical APDU reference. Do not append new APIs as a loose notes section or migration appendix when they are first-class instructions.
+- For every documented INS or APDU sub-command in `docs/apdu-command.md`, keep the same structure used by the existing sections:
+  - title line with instruction name
+  - `**Mô tả**`
+  - `**Command**`
+  - `**Tham số**`
+  - `**Ví dụ**`
+  - `**Response**`
+  - `**Response codes**`
+- If an INS has multiple `P1` sub-commands, document each sub-command as its own subsection using the full structure above instead of mixing prose bullets with partial payload notes.
+- Keep section numbering in `docs/apdu-command.md` coherent after edits. If a new first-class instruction family is added, place it in the main numbered flow rather than as an unnumbered appendix.
+- When documenting response codes in `docs/apdu-command.md`, make them match the actual implementation status words in code/tests; do not invent or copy stale SW mappings from previous protocol revisions.
 
 ## 8) Code Style - Imports and Structure
 - No wildcard imports.
