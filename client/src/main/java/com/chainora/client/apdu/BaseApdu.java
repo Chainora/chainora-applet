@@ -69,6 +69,19 @@ public abstract class BaseApdu {
         return data != null && data.length > 0;
     }
 
+    protected void ensureSuccess(ResponseAPDU response, String message) throws CardOperationException {
+        if (!isSuccess(response)) {
+            throw new CardOperationException(message, response.getSW());
+        }
+    }
+
+    protected byte[] requireData(ResponseAPDU response, String message) throws CardOperationException {
+        if (!isSuccess(response) || !hasData(response)) {
+            throw new CardOperationException(message, response.getSW());
+        }
+        return response.getData();
+    }
+
     /**
      * Helper method to convert byte array to hex string.
      *

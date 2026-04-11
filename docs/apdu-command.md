@@ -503,4 +503,25 @@ Command này dùng nhiều sub-command qua byte `P1`.
 
 Nếu có vấn đề khi tích hợp, vui lòng liên hệ team applet hoặc tạo issue trên repository.
 
+## Backend Card Attestation API
+
+- API mới cho backend verify dùng `INS_DEVICE_CERT (0x23)` và `INS_CARD_ATTEST (0x24)`.
+- `0x23 / P1=0x00` -> `GET_DEVICE_CERT`
+- `0x23 / P1=0x10` -> `GET_FACTORY_CSR`
+- `0x23 / P1=0x11` -> `SET_DEVICE_CERT`
+- `0x24` nhận `challenge[32]`, trả về:
+
+```text
+[version:1][deviceId:16][challenge:32][sigLen:1][sigDer:sigLen]
+```
+
+- Chữ ký proof được tạo bởi `deviceAuthPrivateKey` và backend verify bằng `deviceAuthPublicKey` lấy từ certificate.
+- Các sub-command cert/factory không còn nằm dưới `INS 0x30`.
+- Host phải cập nhật:
+  - `GET_DEVICE_CERT`: từ `0x30 / P1=0x00` sang `0x23 / P1=0x00`
+  - `GET_FACTORY_CSR`: từ `0x30 / P1=0x10` sang `0x23 / P1=0x10`
+  - `SET_DEVICE_CERT`: từ `0x30 / P1=0x11` sang `0x23 / P1=0x11`
+- Phần backup thuần vẫn giữ nguyên:
+  - `START_LINK_PROOF`, `LOAD_PEER_CERT`, `LOAD_PEER_LINK_PROOF`, `CLEAR_LINK_STATE`, `BACKUP_EXPORT`, `BACKUP_IMPORT`
+
 **Repository**: https://github.com/Chainora/chainora-applet

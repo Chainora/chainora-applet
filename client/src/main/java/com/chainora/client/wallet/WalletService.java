@@ -456,7 +456,7 @@ public class WalletService {
 
     private byte[] ensureDeviceCertificateInstalled(String cardRole) throws CardException {
         try {
-            return card.getBackupDeviceCertificate();
+            return card.getDeviceCertificate();
         } catch (CardOperationException ex) {
             if (ex.getSw() != SW_RECORD_NOT_FOUND) {
                 throw ex;

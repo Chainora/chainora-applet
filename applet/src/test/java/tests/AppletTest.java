@@ -1,5 +1,7 @@
 package tests;
 
+import java.util.Arrays;
+
 import cz.muni.fi.crocs.rcard.client.CardManager;
 import cz.muni.fi.crocs.rcard.client.CardType;
 import javacard.framework.ISO7816;
@@ -9,6 +11,8 @@ import org.junit.jupiter.api.*;
 
 import javax.smartcardio.CommandAPDU;
 import javax.smartcardio.ResponseAPDU;
+
+import com.chainora.wallet.Configuration;
 
 /**
  * Test class for the Chainora applet.
@@ -20,7 +24,13 @@ import javax.smartcardio.ResponseAPDU;
 public class AppletTest extends BaseTest {
     private static final int APPLET_CLA = 0x80;
     private static final byte BACKUP_PROTOCOL_VERSION = 0x02;
+    private static final byte CARD_ATTEST_FORMAT_VERSION = 0x01;
     private static final byte DEVICE_CERT_VERSION = 0x01;
+    private static final short DEVICE_CERT_BODY_LENGTH = 83;
+    private static final short DEVICE_CERT_PUBLIC_KEY_OFFSET = 17;
+    private static final short DEVICE_CERT_SIGNATURE_LENGTH_OFFSET = 83;
+    private static final short CARD_ATTEST_BODY_LENGTH = 49;
+    private static final short CARD_ATTEST_CHALLENGE_OFFSET = 17;
     private static final short LINK_PROOF_BODY_LENGTH = 102;
     private static final short LINK_PROOF_COUNTER_OFFSET = 3;
     private static final short LINK_PROOF_DEVICE_PUBLIC_OFFSET = 21;
@@ -101,11 +111,31 @@ public class AppletTest extends BaseTest {
     }
 
     private byte[] getDeviceCertificate(CardManager cardManager) throws Exception {
-        final CommandAPDU getCertCmd = new CommandAPDU(APPLET_CLA, 0x30, 0x00, 0x00);
+        final CommandAPDU getCertCmd = new CommandAPDU(APPLET_CLA, 0x23, 0x00, 0x00);
         final ResponseAPDU certResponse = cardManager.transmit(getCertCmd);
         Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) certResponse.getSW());
         Assert.assertTrue(certResponse.getData().length > 0);
         return certResponse.getData();
+    }
+
+    private byte[] getFactoryCsrViaDedicatedIns(CardManager cardManager) throws Exception {
+        final CommandAPDU csrCmd = new CommandAPDU(APPLET_CLA, 0x23, 0x10, 0x00);
+        final ResponseAPDU csrResponse = cardManager.transmit(csrCmd);
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) csrResponse.getSW());
+        return csrResponse.getData();
+    }
+
+    private byte[] signBackendChallenge(CardManager cardManager, byte[] challenge) throws Exception {
+        final CommandAPDU attestCmd = new CommandAPDU(APPLET_CLA, 0x24, 0x00, 0x00, challenge);
+        final ResponseAPDU attestResponse = cardManager.transmit(attestCmd);
+        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) attestResponse.getSW());
+        return attestResponse.getData();
+    }
+
+    private byte[] extractCertificatePublicKey(byte[] certificate) {
+        return Arrays.copyOfRange(certificate,
+                DEVICE_CERT_PUBLIC_KEY_OFFSET,
+                DEVICE_CERT_PUBLIC_KEY_OFFSET + Configuration.PUBLIC_KEY_UNCOMPRESSED_LENGTH);
     }
 
     private short readShort(byte[] data, int offset) {
@@ -301,6 +331,90 @@ public class AppletTest extends BaseTest {
     }
 
     // ==================== SECURITY TESTS ====================
+
+    /**
+     * Test that the dedicated factory CSR command returns expected format.
+     */
+    @Test
+    public void deviceCertGetFactoryCsr_ReturnsExpectedFormat() throws Exception {
+        final CardManager cardManager = connect();
+
+        final byte[] csr = getFactoryCsrViaDedicatedIns(cardManager);
+        Assert.assertEquals(82, csr.length);
+        Assert.assertEquals(DEVICE_CERT_VERSION, csr[0]);
+        Assert.assertEquals(0x04, csr[17]);
+    }
+
+    /**
+     * Test that the dedicated device certificate is verifiable with the factory root key.
+     */
+    @Test
+    public void deviceCertGetDeviceCertificate_VerifiesFactoryRootSignature() throws Exception {
+        final CardManager cardManager = connect();
+
+        final byte[] certificate = getDeviceCertificate(cardManager);
+        final short signatureLength = (short) (certificate[DEVICE_CERT_SIGNATURE_LENGTH_OFFSET] & 0xFF);
+        final byte[] certificateBody = Arrays.copyOfRange(certificate, 0, DEVICE_CERT_BODY_LENGTH);
+        final byte[] signature = Arrays.copyOfRange(
+                certificate,
+                DEVICE_CERT_SIGNATURE_LENGTH_OFFSET + 1,
+                DEVICE_CERT_SIGNATURE_LENGTH_OFFSET + 1 + signatureLength);
+
+        Assert.assertTrue(TestUtils.verifyEcdsaSha256(
+                Configuration.CHAINORA_FACTORY_ROOT_PUBLIC_KEY,
+                certificateBody,
+                signature));
+    }
+
+    /**
+     * Test that CARD_ATTEST rejects malformed challenge length.
+     */
+    @Test
+    public void cardAttest_InvalidChallengeLength_ReturnsWrongLength() throws Exception {
+        final CardManager cardManager = connect();
+
+        final CommandAPDU cmd = new CommandAPDU(APPLET_CLA, 0x24, 0x00, 0x00, new byte[] { 0x01 });
+        final ResponseAPDU response = cardManager.transmit(cmd);
+        Assert.assertEquals(ISO7816.SW_WRONG_LENGTH, (short) response.getSW());
+    }
+
+    /**
+     * Test that CARD_ATTEST returns proof signed by the device auth key from the certificate.
+     */
+    @Test
+    public void cardAttest_ValidChallenge_ReturnsSignedProof() throws Exception {
+        final CardManager cardManager = connect();
+
+        final byte[] certificate = getDeviceCertificate(cardManager);
+        final byte[] challenge = new byte[Configuration.CARD_CHALLENGE_LENGTH];
+        for (int i = 0; i < challenge.length; i++) {
+            challenge[i] = (byte) i;
+        }
+
+        final byte[] proof = signBackendChallenge(cardManager, challenge);
+        Assert.assertTrue(proof.length > CARD_ATTEST_BODY_LENGTH + 1);
+        Assert.assertEquals(CARD_ATTEST_FORMAT_VERSION, proof[0]);
+        Assert.assertArrayEquals(
+                Arrays.copyOfRange(certificate, 1, 1 + Configuration.DEVICE_ID_LENGTH),
+                Arrays.copyOfRange(proof, 1, 1 + Configuration.DEVICE_ID_LENGTH));
+        Assert.assertArrayEquals(
+                challenge,
+                Arrays.copyOfRange(proof,
+                        CARD_ATTEST_CHALLENGE_OFFSET,
+                        CARD_ATTEST_CHALLENGE_OFFSET + Configuration.CARD_CHALLENGE_LENGTH));
+
+        final short signatureLength = (short) (proof[CARD_ATTEST_BODY_LENGTH] & 0xFF);
+        final byte[] proofBody = Arrays.copyOfRange(proof, 0, CARD_ATTEST_BODY_LENGTH);
+        final byte[] signature = Arrays.copyOfRange(
+                proof,
+                CARD_ATTEST_BODY_LENGTH + 1,
+                CARD_ATTEST_BODY_LENGTH + 1 + signatureLength);
+
+        Assert.assertTrue(TestUtils.verifyEcdsaSha256(
+                extractCertificatePublicKey(certificate),
+                proofBody,
+                signature));
+    }
 
     /**
      * Test that GET_FACTORY_CSR returns expected format.

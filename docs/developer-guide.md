@@ -113,7 +113,15 @@ chainora-applet/
 | `PinCommandHandler.java` | 0x10-0x14 | Tất cả thao tác PIN |
 | `KeyCommandHandler.java` | 0x20-0x21 | Sinh khóa và lấy public key |
 | `SignCommandHandler.java` | 0x22 | Ký hash |
+| `DeviceCertificateCommandHandler.java` | 0x23 | Factory CSR + device certificate API |
+| `CardAttestationCommandHandler.java` | 0x24 | Ký backend challenge bằng device auth key |
 | `BackupCommandHandler.java` | 0x30-0x32 | Provisioning cert, mutual auth, ECDH backup |
+
+**Shared identity component**
+
+| File | Mô tả |
+|------|-------|
+| `DeviceIdentityManager.java` | Quản lý `deviceId`, `deviceAuth` keypair, certificate và factory-root verification dùng chung cho attestation + backup |
 
 **Utilities (DRY Principle)**
 
@@ -306,6 +314,8 @@ public class Secp256k1 {
 | 0x20 | GEN_KEY_PAIR | Đã validate | - | SW only |
 | 0x21 | GET_PUBLIC_KEY | Đã validate | - | 65 bytes + SW |
 | 0x22 | SIGN_HASH | Đã validate | [32-byte hash] | DER sig + SW |
+| 0x23 | INS_DEVICE_CERT | Tuỳ subcommand | Cert/factory payload | Data/SW |
+| 0x24 | INS_CARD_ATTEST | Không | [32-byte challenge] | Attestation proof + SW |
 | 0x30 | BACKUP_SESSION | Tuỳ subcommand | Subcommand payload | Data/SW |
 | 0x31 | BACKUP_EXPORT | Đã validate | - | Backup envelope + SW |
 | 0x32 | BACKUP_IMPORT | Đã validate | Backup envelope | SW only |
@@ -352,6 +362,12 @@ public class Secp256k1 {
 - Canonicalization now compares full 32-byte big-int `S` against `N/2` before normalization.
 - Signature được normalize để `s <= n/2`
 - Ngăn chặn transaction malleability (tạo nhiều sig hợp lệ từ 1 transaction)
+
+**Backend Card Attestation**
+- `INS_DEVICE_CERT (0x23)` tách riêng factory CSR và device certificate khỏi backup API.
+- `INS_CARD_ATTEST (0x24)` ký challenge 32 byte do backend sinh bằng `deviceAuthPrivateKey`.
+- Backend verify theo chuỗi: factory root -> device certificate -> attestation proof.
+- Anti-replay của flow này nằm ở backend: challenge one-time, TTL ngắn, mark-used sau khi verify thành công.
 
 **Certificate Chain + ECDH Backup**
 - Backup protocol v2 binds `sessionId/counter` into KDF and signed envelope/link-proof payload.

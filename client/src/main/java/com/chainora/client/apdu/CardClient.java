@@ -12,12 +12,16 @@ public class CardClient {
     private final PinApdu pinApdu;
     private final KeyApdu keyApdu;
     private final SignApdu signApdu;
+    private final DeviceCertificateApdu deviceCertificateApdu;
+    private final CardAttestationApdu cardAttestationApdu;
     private final BackupApdu backupApdu;
 
     public CardClient(CardManager cardManager) {
         this.pinApdu = new PinApdu(cardManager);
         this.keyApdu = new KeyApdu(cardManager);
         this.signApdu = new SignApdu(cardManager);
+        this.deviceCertificateApdu = new DeviceCertificateApdu(cardManager);
+        this.cardAttestationApdu = new CardAttestationApdu(cardManager);
         this.backupApdu = new BackupApdu(cardManager);
     }
 
@@ -145,11 +149,20 @@ public class CardClient {
         pinApdu.update(currentPin, newPin);
     }
 
-    /**
-     * Reads the current device certificate from card storage.
-     */
-    public byte[] getBackupDeviceCertificate() throws CardException {
-        return backupApdu.getDeviceCertificate();
+    public byte[] getDeviceCertificate() throws CardException {
+        return deviceCertificateApdu.getDeviceCertificate();
+    }
+
+    public byte[] getFactoryCsr() throws CardException {
+        return deviceCertificateApdu.getFactoryCsr();
+    }
+
+    public void setDeviceCertificate(byte[] certificate) throws CardException {
+        deviceCertificateApdu.setDeviceCertificate(certificate);
+    }
+
+    public byte[] signBackendChallenge(byte[] challenge) throws CardException {
+        return cardAttestationApdu.signChallenge(challenge);
     }
 
     /**

@@ -30,7 +30,7 @@ public final class InstallCertificateProvisioner {
     private static final String APPLET_AID = "f0564e43485701";
 
     private static final byte CLA = (byte) 0x80;
-    private static final byte INS_BACKUP_SESSION = (byte) 0x30;
+    private static final byte INS_DEVICE_CERT = (byte) 0x23;
 
     private static final byte P1_GET_DEVICE_CERT = (byte) 0x00;
     private static final byte P1_GET_FACTORY_CSR = (byte) 0x10;
@@ -88,7 +88,7 @@ public final class InstallCertificateProvisioner {
 
         ResponseAPDU setResponse = transmit(
                 cardManager,
-                new CommandAPDU(CLA & 0xFF, INS_BACKUP_SESSION & 0xFF,
+                new CommandAPDU(CLA & 0xFF, INS_DEVICE_CERT & 0xFF,
                         P1_SET_DEVICE_CERT & 0xFF, 0x00, certificate));
 
         if (setResponse.getSW() != SW_SUCCESS && setResponse.getSW() != SW_CONDITIONS_NOT_SATISFIED) {
@@ -107,7 +107,7 @@ public final class InstallCertificateProvisioner {
     private static byte[] tryReadDeviceCertificate(CardManager cardManager) throws Exception {
         ResponseAPDU response = transmit(
                 cardManager,
-                new CommandAPDU(CLA & 0xFF, INS_BACKUP_SESSION & 0xFF, P1_GET_DEVICE_CERT & 0xFF, 0x00));
+                new CommandAPDU(CLA & 0xFF, INS_DEVICE_CERT & 0xFF, P1_GET_DEVICE_CERT & 0xFF, 0x00));
 
         if (response.getSW() == SW_SUCCESS) {
             return response.getData();
@@ -130,7 +130,7 @@ public final class InstallCertificateProvisioner {
     private static byte[] readFactoryCsr(CardManager cardManager) throws Exception {
         ResponseAPDU response = transmit(
                 cardManager,
-                new CommandAPDU(CLA & 0xFF, INS_BACKUP_SESSION & 0xFF, P1_GET_FACTORY_CSR & 0xFF, 0x00));
+                new CommandAPDU(CLA & 0xFF, INS_DEVICE_CERT & 0xFF, P1_GET_FACTORY_CSR & 0xFF, 0x00));
 
         if (response.getSW() != SW_SUCCESS) {
             throw new IllegalStateException(String.format("GET_FACTORY_CSR failed with SW=%04X", response.getSW()));
