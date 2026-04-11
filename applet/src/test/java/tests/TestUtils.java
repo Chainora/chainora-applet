@@ -2,12 +2,16 @@ package tests;
 
 import org.bouncycastle.crypto.digests.KeccakDigest;
 import org.bouncycastle.crypto.params.ECDomainParameters;
+import org.bouncycastle.crypto.params.ECPublicKeyParameters;
+import org.bouncycastle.crypto.signers.ECDSASigner;
 import org.bouncycastle.math.ec.ECAlgorithms;
 import org.bouncycastle.math.ec.ECPoint;
 import org.bouncycastle.math.ec.custom.sec.SecP256K1Curve;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -143,6 +147,34 @@ public class TestUtils {
         byte[] output = new byte[digest.getDigestSize()];
         digest.doFinal(output, 0);
         return output;
+    }
+
+    public static byte[] sha256Hash(byte[] input) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            if (input == null) {
+                return digest.digest(new byte[0]);
+            }
+            return digest.digest(input);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 not available", ex);
+        }
+    }
+
+    public static boolean verifyEcdsaSha256(byte[] publicKey, byte[] message, byte[] derSignature) {
+        if (publicKey == null || publicKey.length != 65 || publicKey[0] != 0x04) {
+            throw new IllegalArgumentException("Public key must be uncompressed secp256k1");
+        }
+        if (derSignature == null || derSignature.length == 0) {
+            throw new IllegalArgumentException("DER signature is required");
+        }
+
+        byte[][] rs = decodeDerSignature(derSignature, 32);
+        BigInteger r = new BigInteger(1, rs[0]);
+        BigInteger s = new BigInteger(1, rs[1]);
+        ECDSASigner signer = new ECDSASigner();
+        signer.init(false, new ECPublicKeyParameters(CURVE.decodePoint(publicKey), DOMAIN));
+        return signer.verifySignature(sha256Hash(message), r, s);
     }
 
     public static byte[] constructSignedEvmTransaction(byte[] evmTx, byte[] rComponent, byte[] sComponent,

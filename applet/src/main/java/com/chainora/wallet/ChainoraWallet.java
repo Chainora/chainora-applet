@@ -92,7 +92,8 @@ public class ChainoraWallet extends Applet {
         setCurveParameters(peerSessionLinkPublicKey);
 
         Signature walletSignature = Signature.getInstance(Signature.ALG_ECDSA_SHA_256, false);
-        Signature backupSigningSignature = Signature.getInstance(Signature.ALG_ECDSA_SHA_256, false);
+        Signature deviceAuthSignature = Signature.getInstance(Signature.ALG_ECDSA_SHA_256, false);
+        Signature sharedVerifySignature = Signature.getInstance(Signature.ALG_ECDSA_SHA_256, false);
         Signature backupVerifySignature = Signature.getInstance(Signature.ALG_ECDSA_SHA_256, false);
         KeyAgreement keyAgreement = KeyAgreement.getInstance(KeyAgreement.ALG_EC_SVDP_DH_PLAIN, false);
         MessageDigest sha256Digest = MessageDigest.getInstance(MessageDigest.ALG_SHA_256, false);
@@ -114,7 +115,8 @@ public class ChainoraWallet extends Applet {
                 sessionLinkKeyPair,
                 peerDeviceAuthPublicKey,
                 peerSessionLinkPublicKey,
-                backupSigningSignature,
+                deviceAuthSignature,
+                sharedVerifySignature,
                 backupVerifySignature,
                 keyAgreement,
                 sha256Digest,
@@ -136,7 +138,8 @@ public class ChainoraWallet extends Applet {
             KeyPair sessionLinkKeyPair,
             ECPublicKey peerDeviceAuthPublicKey,
             ECPublicKey peerSessionLinkPublicKey,
-            Signature backupSigningSignature,
+            Signature deviceAuthSignature,
+            Signature sharedVerifySignature,
             Signature backupVerifySignature,
             KeyAgreement keyAgreement,
             MessageDigest sha256Digest,
@@ -146,16 +149,24 @@ public class ChainoraWallet extends Applet {
         PinCommandHandler pinHandler = new PinCommandHandler(pinValidator);
         KeyCommandHandler keyHandler = new KeyCommandHandler(pinValidator, walletKeyPair, walletPublicKey);
         SignCommandHandler signHandler = new SignCommandHandler(pinValidator, walletPrivateKey, walletSignature);
+        DeviceIdentityManager deviceIdentityManager = new DeviceIdentityManager(
+                deviceAuthKeyPair,
+                chainoraFactoryRootPublicKey,
+                deviceAuthSignature,
+                sharedVerifySignature,
+                randomData);
+        DeviceCertificateCommandHandler deviceCertificateHandler =
+                new DeviceCertificateCommandHandler(deviceIdentityManager);
+        CardAttestationCommandHandler cardAttestationHandler =
+                new CardAttestationCommandHandler(deviceIdentityManager);
         BackupCommandHandler backupHandler = new BackupCommandHandler(
                 pinValidator,
                 walletPrivateKey,
                 walletPublicKey,
-                deviceAuthKeyPair,
-                chainoraFactoryRootPublicKey,
+                deviceIdentityManager,
                 sessionLinkKeyPair,
                 peerDeviceAuthPublicKey,
                 peerSessionLinkPublicKey,
-                backupSigningSignature,
                 backupVerifySignature,
                 keyAgreement,
                 sha256Digest,
@@ -172,6 +183,8 @@ public class ChainoraWallet extends Applet {
                 .register((byte) 0x20, keyHandler)
                 .register((byte) 0x21, keyHandler)
                 .register((byte) 0x22, signHandler)
+                .register(Configuration.INS_DEVICE_CERT, deviceCertificateHandler)
+                .register(Configuration.INS_CARD_ATTEST, cardAttestationHandler)
                 .register(Configuration.INS_BACKUP_SESSION, backupHandler)
                 .register(Configuration.INS_BACKUP_EXPORT, backupHandler)
                 .register(Configuration.INS_BACKUP_IMPORT, backupHandler)
