@@ -32,7 +32,7 @@ public final class ApduConstants {
     public static final byte INS_BACKUP_EXPORT = 0x31;
     public static final byte INS_BACKUP_IMPORT = 0x32;
 
-    // Shared certificate/factory P1 values used by INS_DEVICE_CERT and legacy backup path
+    // Shared certificate/factory P1 values used by INS_DEVICE_CERT.
     public static final byte P1_GET_DEVICE_CERT = 0x00;
     public static final byte P1_START_LINK_PROOF = 0x01;
     public static final byte P1_LOAD_PEER_CERT = 0x02;

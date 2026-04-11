@@ -2,7 +2,13 @@
 
 ## Giới thiệu
 
-Tài liệu này mô tả các APDU commands để tương tác với applet **ChainoraWallet** trên JavaCard. Applet này cung cấp các chức năng quản lý PIN và quản lý cặp khóa EC (Elliptic Curve) để ký giao dịch.
+Tài liệu này mô tả các APDU command để tương tác với applet **ChainoraWallet** trên JavaCard. Applet hỗ trợ:
+
+- quản lý PIN
+- quản lý wallet keypair secp256k1
+- device identity / certificate provisioning
+- backend card attestation
+- backup wallet bằng mutual authentication + ECDH
 
 **Applet AID**: `F0564E43485701`
 
@@ -10,16 +16,16 @@ Tài liệu này mô tả các APDU commands để tương tác với applet **C
 
 ## Cấu trúc APDU Command
 
-```
+```text
 CLA  INS  P1  P2  Lc  Data  Le
 ```
 
-- **CLA** (Class): `0x80` - Class byte cho applet
-- **INS** (Instruction): Mã lệnh cụ thể
-- **P1, P2** (Parameters): Tham số bổ sung (thường là `0x00`)
-- **Lc** (Length of data): Độ dài dữ liệu gửi đi
-- **Data**: Dữ liệu command
-- **Le** (Expected length): Độ dài dữ liệu mong đợi nhận về
+- **CLA**: `0x80`
+- **INS**: mã lệnh
+- **P1, P2**: tham số bổ sung
+- **Lc**: độ dài data gửi lên card
+- **Data**: payload của command
+- **Le**: độ dài dữ liệu mong đợi trả về
 
 ---
 
@@ -27,11 +33,11 @@ CLA  INS  P1  P2  Lc  Data  Le
 
 ### 1.1. INIT_PIN - Khởi tạo PIN
 
-**Mô tả**: Khởi tạo PIN lần đầu tiên cho thẻ. Chỉ có thể thực hiện một lần.
+**Mô tả**: Khởi tạo PIN lần đầu tiên cho thẻ. Chỉ thực hiện được một lần cho đến khi `RESET_PIN`.
 
 **Command**:
 
-```
+```text
 CLA: 0x80
 INS: 0x10
 P1:  0x00
@@ -42,30 +48,35 @@ Data: [PIN bytes]
 
 **Tham số**:
 
-- `Lc`: Độ dài của PIN (tối đa 8 bytes theo Configuration.PIN_MAX_SIZE)
-- `Data`: Mã PIN dạng byte array
+- `Lc`: độ dài PIN, tối đa 8 byte
+- `Data`: PIN dạng byte array
 
 **Ví dụ**:
 
-```
-// Khởi tạo PIN = "123456" (6 bytes)
+```text
+// PIN = "123456"
 Command: 80 10 00 00 06 31 32 33 34 35 36
 ```
 
+**Response**:
+
+- Không có data
+- Status: `0x9000`
+
 **Response codes**:
 
-- `0x9000` (SW_NO_ERROR): Khởi tạo PIN thành công
-- `0x6985` (SW_CONDITIONS_NOT_SATISFIED): PIN đã được khởi tạo trước đó
+- `0x9000`: thành công
+- `0x6985`: PIN đã được khởi tạo trước đó
 
 ---
 
 ### 1.2. VERIFY_PIN - Xác thực PIN
 
-**Mô tả**: Xác thực PIN để mở khóa các chức năng bảo mật.
+**Mô tả**: Xác thực PIN để mở khóa các chức năng yêu cầu bảo mật.
 
 **Command**:
 
-```
+```text
 CLA: 0x80
 INS: 0x11
 P1:  0x00
@@ -76,32 +87,36 @@ Data: [PIN bytes]
 
 **Tham số**:
 
-- `Lc`: Độ dài của PIN
-- `Data`: Mã PIN cần xác thực
+- `Lc`: độ dài PIN
+- `Data`: PIN cần xác thực
 
 **Ví dụ**:
 
-```
-// Xác thực PIN = "123456"
+```text
 Command: 80 11 00 00 06 31 32 33 34 35 36
 ```
 
+**Response**:
+
+- Không có data
+- Status: `0x9000`
+
 **Response codes**:
 
-- `0x9000` (SW_NO_ERROR): Xác thực thành công
-- `0x6985` (SW_CONDITIONS_NOT_SATISFIED): PIN chưa được khởi tạo
-- `0x6982` (SW_SECURITY_STATUS_NOT_SATISFIED): PIN không đúng
-- `0x6983` (SW_AUTHENTICATION_METHOD_BLOCKED): PIN bị khóa do nhập sai quá số lần cho phép (3 lần)
+- `0x9000`: thành công
+- `0x6985`: PIN chưa được khởi tạo
+- `0x6982`: PIN không đúng
+- `0x6983`: PIN bị khóa do nhập sai quá số lần cho phép
 
 ---
 
 ### 1.3. UPDATE_PIN - Cập nhật PIN
 
-**Mô tả**: Thay đổi mã PIN hiện tại. Yêu cầu đã xác thực PIN trước đó.
+**Mô tả**: Đổi PIN hiện tại. Yêu cầu cung cấp đúng PIN hiện tại.
 
 **Command**:
 
-```
+```text
 CLA: 0x80
 INS: 0x12
 P1:  0x00
@@ -112,34 +127,36 @@ Data: [curPinLen:1][curPin][newPin]
 
 **Tham số**:
 
-- `Lc`: Tổng độ dài = 1 (cho curPinLen) + độ dài PIN cũ + độ dài PIN mới
-- `Data[0]`: Độ dài PIN hiện tại (1 byte)
-- `Data[1..curPinLen]`: PIN hiện tại
-- `Data[curPinLen+1..]`: PIN mới
+- `Data[0]`: độ dài PIN hiện tại
+- `Data[1..]`: PIN hiện tại nối tiếp PIN mới
 
 **Ví dụ**:
 
+```text
+// đổi từ "123456" sang "654321"
+Command: 80 12 00 00 0D 06 31 32 33 34 35 36 36 35 34 33 32 31
 ```
-// Đổi PIN từ "123456" sang "654321"
-// curPinLen=6, curPin="123456", newPin="654321"
-Command: 80 12 00 00 0E 06 31 32 33 34 35 36 36 35 34 33 32 31
-```
+
+**Response**:
+
+- Không có data
+- Status: `0x9000`
 
 **Response codes**:
 
-- `0x9000` (SW_NO_ERROR): Cập nhật PIN thành công
-- `0x6985` (SW_CONDITIONS_NOT_SATISFIED): PIN chưa được khởi tạo
-- `0x6982` (SW_SECURITY_STATUS_NOT_SATISFIED): PIN hiện tại không đúng hoặc chưa xác thực
+- `0x9000`: thành công
+- `0x6985`: PIN chưa được khởi tạo
+- `0x6982`: PIN hiện tại không đúng hoặc chưa xác thực được yêu cầu nội bộ
 
 ---
 
 ### 1.4. RESET_PIN - Reset PIN
 
-**Mô tả**: Xóa PIN và reset trạng thái khởi tạo. Sau khi reset, cần phải khởi tạo PIN lại. Yêu cầu đã xác thực PIN trước đó.
+**Mô tả**: Xóa PIN và đưa card về trạng thái chưa khởi tạo PIN. Yêu cầu đã verify PIN trong session hiện tại.
 
 **Command**:
 
-```
+```text
 CLA: 0x80
 INS: 0x13
 P1:  0x00
@@ -151,24 +168,29 @@ Lc:  0x00
 
 **Ví dụ**:
 
-```
+```text
 Command: 80 13 00 00 00
 ```
 
+**Response**:
+
+- Không có data
+- Status: `0x9000`
+
 **Response codes**:
 
-- `0x9000` (SW_NO_ERROR): Reset PIN thành công
-- `0x6982` (SW_SECURITY_STATUS_NOT_SATISFIED): Chưa xác thực PIN
+- `0x9000`: thành công
+- `0x6982`: chưa xác thực PIN
 
 ---
 
 ### 1.5. IS_PIN_INITIALIZED - Kiểm tra trạng thái PIN
 
-**Mô tả**: Kiểm tra xem PIN đã được khởi tạo chưa.
+**Mô tả**: Kiểm tra xem PIN đã được khởi tạo hay chưa.
 
 **Command**:
 
-```
+```text
 CLA: 0x80
 INS: 0x14
 P1:  0x00
@@ -180,30 +202,30 @@ Le:  0x01
 
 **Ví dụ**:
 
-```
+```text
 Command: 80 14 00 00 00 01
 ```
 
 **Response**:
 
-- Data: `0x01` nếu PIN đã khởi tạo, `0x00` nếu chưa
+- Data: `0x01` nếu đã khởi tạo, `0x00` nếu chưa
 - Status: `0x9000`
 
 **Response codes**:
 
-- `0x9000` (SW_NO_ERROR): Thành công, kiểm tra byte dữ liệu trả về
+- `0x9000`: thành công
 
 ---
 
-## 2. Quản lý KeyPair (Cặp khóa EC)
+## 2. Quản lý Wallet KeyPair
 
 ### 2.1. GEN_KEY_PAIR - Sinh cặp khóa
 
-**Mô tả**: Sinh một cặp khóa EC (secp256k1) mới. Yêu cầu đã xác thực PIN.
+**Mô tả**: Sinh wallet keypair secp256k1 mới. Yêu cầu đã verify PIN.
 
 **Command**:
 
-```
+```text
 CLA: 0x80
 INS: 0x20
 P1:  0x00
@@ -215,313 +237,666 @@ Lc:  0x00
 
 **Ví dụ**:
 
-```
+```text
 Command: 80 20 00 00 00
 ```
 
+**Response**:
+
+- Không có data
+- Status: `0x9000`
+
 **Response codes**:
 
-- `0x9000` (SW_NO_ERROR): Sinh khóa thành công
-- `0x6985` (SW_CONDITIONS_NOT_SATISFIED): PIN chưa được khởi tạo
-- `0x6982` (SW_SECURITY_STATUS_NOT_SATISFIED): Chưa xác thực PIN
+- `0x9000`: thành công
+- `0x6985`: PIN chưa được khởi tạo
+- `0x6982`: chưa xác thực PIN
 
 ---
 
-### 2.2. GET_PUBLIC_KEY - Lấy Public Key
+### 2.2. GET_PUBLIC_KEY - Lấy public key
 
-**Mô tả**: Lấy public key đã được sinh. Yêu cầu đã xác thực PIN.
+**Mô tả**: Đọc wallet public key đã sinh. Yêu cầu đã verify PIN.
 
 **Command**:
 
-```
+```text
 CLA: 0x80
 INS: 0x21
 P1:  0x00
 P2:  0x00
-Le:  0x00 (hoặc 0x41 để nhận 65 bytes)
+Le:  0x00
 ```
 
 **Tham số**: Không có
 
 **Ví dụ**:
 
-```
+```text
 Command: 80 21 00 00 00 00
 ```
 
 **Response**:
 
-- Data: 65 bytes public key (uncompressed format: 0x04 + X coordinate 32 bytes + Y coordinate 32 bytes)
+- Data: 65 byte public key secp256k1 uncompressed (`0x04 || X || Y`)
 - Status: `0x9000`
 
 **Response codes**:
 
-- `0x9000` (SW_NO_ERROR): Lấy public key thành công
-- `0x6985` (SW_CONDITIONS_NOT_SATISFIED): PIN chưa được khởi tạo hoặc chưa sinh khóa
-- `0x6982` (SW_SECURITY_STATUS_NOT_SATISFIED): Chưa xác thực PIN
+- `0x9000`: thành công
+- `0x6985`: PIN chưa được khởi tạo hoặc chưa có keypair
+- `0x6982`: chưa xác thực PIN
 
 ---
 
 ### 2.3. SIGN_HASH - Ký hash
 
-**Mô tả**: Ký một hash data bằng private key. Signature được Low-S normalized để ngăn chặn transaction malleability.
+**Mô tả**: Ký hash 32 byte bằng wallet private key. Signature trả về ở dạng DER ECDSA và được low-S normalize.
 
 **Command**:
 
-```
+```text
 CLA: 0x80
 INS: 0x22
 P1:  0x00
 P2:  0x00
-Lc:  0x20 (32 bytes)
+Lc:  0x20
 Data: [32-byte hash]
 Le:  0x00
 ```
 
 **Tham số**:
 
-- `Data`: Hash 32 bytes cần ký (thường là Keccak-256 hash của transaction, đã được tính toán sẵn)
+- `Data`: hash 32 byte đã được tính sẵn ở phía host
 
 **Ví dụ**:
 
-```
-// Ký hash (32 bytes)
+```text
 Command: 80 22 00 00 20 [32 bytes hash] 00
 ```
 
 **Response**:
 
-- Data: DER-encoded ECDSA signature (Low-S normalized)
-  - Format: 0x30 [totalLen] 0x02 [rLen] [r...] 0x02 [sLen] [s...]
-  - s <= n/2 để ngăn chặn transaction malleability
+- Data: DER-encoded ECDSA signature
+- Format: `30 [len] 02 [rLen] [r] 02 [sLen] [s]`
+- `s <= n/2` để tránh malleability
 - Status: `0x9000`
 
 **Response codes**:
 
-- `0x9000` (SW_NO_ERROR): Ký thành công
-- `0x6985` (SW_CONDITIONS_NOT_SATISFIED): PIN chưa được khởi tạo hoặc chưa sinh khóa
-- `0x6982` (SW_SECURITY_STATUS_NOT_SATISFIED): Chưa xác thực PIN
+- `0x9000`: thành công
+- `0x6985`: PIN chưa được khởi tạo hoặc chưa có keypair
+- `0x6982`: chưa xác thực PIN
 
 ---
 
-## 3. Backup key bằng Mutual Authentication + ECDH
+## 3. Device Identity Và Backend Attestation
 
-### 3.1. BACKUP_SESSION (INS `0x30`)
+### 3.1. GET_DEVICE_CERT - Lấy device certificate
 
-Command này dùng nhiều sub-command qua byte `P1`.
+**Mô tả**: Đọc device certificate đã được factory provision trên thẻ.
 
-#### P1 = `0x10` GET_FACTORY_CSR
+**Command**:
 
-- Dùng trong provisioning ở factory/dev tooling.
-- Trả về CSR format:
-
+```text
+CLA: 0x80
+INS: 0x23
+P1:  0x00
+P2:  0x00
+Lc:  0x00
+Le:  0x00
 ```
-[version:1][deviceId:16][deviceAuthPublicKey:65]
+
+**Tham số**: Không có
+
+**Ví dụ**:
+
+```text
+Command: 80 23 00 00 00 00
 ```
 
-#### P1 = `0x11` SET_DEVICE_CERT
+**Response**:
 
-- Ghi device certificate đã được ký bởi Chainora factory root key.
-- Chỉ cho phép ghi 1 lần.
-- Certificate format:
+- Data format:
 
-```
+```text
 [version:1][deviceId:16][deviceAuthPublicKey:65][capabilities:1][sigLen:1][sigDer:sigLen]
 ```
 
-#### P1 = `0x00` GET_DEVICE_CERT
+- `version`: hiện tại = `0x01`
+- `deviceId`: định danh 16 byte của thẻ
+- `deviceAuthPublicKey`: public key secp256k1 uncompressed
+- `capabilities`: bitmap capability, hiện tại phải có bit backup `0x01`
+- `sigLen`: độ dài chữ ký DER
+- `sigDer`: chữ ký ECDSA SHA-256 của factory trên phần body certificate
+- Status: `0x9000`
 
-- Trả về device certificate đang lưu trên card.
+**Response codes**:
 
-#### P1 = `0x01` START_LINK_PROOF
-
-- Card tạo ephemeral link keypair + nonce, ký link proof bằng device auth private key.
-- Trả về:
-
-```
-[version:1][sessionId:2][counter:2][deviceId:16][linkPublicKey:65][nonce:16][sigLen:1][sigDer:sigLen]
-```
-
-#### P1 = `0x02` LOAD_PEER_CERT
-
-- Nạp certificate của card đối tác.
-- Card verify cert chain bằng hardcoded `CHAINORA_FACTORY_ROOT_PUBLIC_KEY`.
-
-#### P1 = `0x03` LOAD_PEER_LINK_PROOF
-
-- Security policy v2: only accept `version = 0x02`, `counter = 0x0001`.
-- DoS guard: after 3 invalid attempts (length/data/security) in the same session, the command is locked until `START_LINK_PROOF` or `CLEAR_LINK_STATE`.
-
-- Nạp link proof của card đối tác.
-- Card verify signature link proof bằng public key trong peer cert.
-
-#### P1 = `0x04` CLEAR_LINK_STATE
-
-- Xóa trạng thái session/peer link để bắt đầu flow mới.
+- `0x9000`: thành công
+- `0x6A83`: chưa có device certificate
+- `0x6A86`: P1/P2 không hợp lệ
 
 ---
 
-### 3.2. BACKUP_EXPORT (INS `0x31`)
+### 3.2. GET_FACTORY_CSR - Lấy factory CSR
 
-**Mô tả**: Card nguồn (source) mã hóa key material bằng ECDH session key và xuất backup envelope.
+**Mô tả**: Đọc CSR blob từ thẻ để factory/dev tooling ký thành device certificate.
 
-**Yêu cầu trước khi gọi**:
+**Command**:
 
-- PIN đã được khởi tạo và verify trong session hiện tại
-- Device cert đã tồn tại
-- Đã thực hiện `START_LINK_PROOF`
-- Đã load + verify peer cert và peer link proof
-
-**Response data format**:
-
+```text
+CLA: 0x80
+INS: 0x23
+P1:  0x10
+P2:  0x00
+Lc:  0x00
+Le:  0x00
 ```
-[version:1][sessionId:2][counter:2][sourceDeviceId:16][destDeviceId:16][iv:16][cipherLen:1][cipher:cipherLen][sigLen:1][sigDer:sigLen]
+
+**Tham số**: Không có
+
+**Ví dụ**:
+
+```text
+Command: 80 23 10 00 00 00
 ```
+
+**Response**:
+
+- Data format:
+
+```text
+[version:1][deviceId:16][deviceAuthPublicKey:65]
+```
+
+- `version`: hiện tại = `0x01`
+- `deviceId`: định danh 16 byte của thẻ
+- `deviceAuthPublicKey`: public key secp256k1 uncompressed
+- Status: `0x9000`
+
+**Response codes**:
+
+- `0x9000`: thành công
+- `0x6A86`: P1/P2 không hợp lệ
 
 ---
 
-### 3.3. BACKUP_IMPORT (INS `0x32`)
+### 3.3. SET_DEVICE_CERT - Ghi device certificate
 
-- Security policy v2: only accept envelope `version = 0x02`, `counter = 0x0002`, and matching `sessionId`.
-- DoS guard: after 3 invalid attempts (length/data/security) in the same session, `BACKUP_IMPORT` is locked until `START_LINK_PROOF` or `CLEAR_LINK_STATE`.
-- Replay hardening: link state is cleared immediately after successful `BACKUP_EXPORT`/`BACKUP_IMPORT`.
+**Mô tả**: Ghi device certificate đã được factory ký vào thẻ. Chỉ được ghi một lần.
 
-**Mô tả**: Card đích (destination) verify envelope, giải mã bằng session key và import key material.
+**Command**:
 
-**Yêu cầu trước khi gọi**:
+```text
+CLA: 0x80
+INS: 0x23
+P1:  0x11
+P2:  0x00
+Lc:  [độ dài certificate]
+Data: [device certificate]
+```
 
-- PIN đã được verify trong session hiện tại
-- Device cert đã tồn tại
-- Đã tạo local link proof từ trước (ở cùng card đích)
-- Đã load source cert + source link proof
+**Tham số**:
 
-**Data input**: backup envelope từ INS `0x31`.
+- `Data` có format:
+
+```text
+[version:1][deviceId:16][deviceAuthPublicKey:65][capabilities:1][sigLen:1][sigDer:sigLen]
+```
+
+**Ví dụ**:
+
+```text
+Command: 80 23 11 00 [Lc] [certificate bytes]
+```
+
+**Response**:
+
+- Không có data
+- Status: `0x9000`
+
+**Response codes**:
+
+- `0x9000`: thành công
+- `0x6985`: certificate đã được ghi trước đó
+- `0x6984`: certificate sai format, sai binding với thẻ, hoặc capability không hợp lệ
+- `0x6982`: chữ ký certificate không verify được bằng factory root key
+- `0x6A86`: P1/P2 không hợp lệ
 
 ---
 
-## 4. Mã Response phổ biến
+### 3.4. CARD_ATTEST - Ký backend challenge
 
-| Status Code | Constant                         | Ý nghĩa                                          |
-| ----------- | -------------------------------- | ------------------------------------------------ |
-| `0x9000`    | SW_NO_ERROR                      | Thành công                                       |
-| `0x6982`    | SW_SECURITY_STATUS_NOT_SATISFIED | Chưa xác thực PIN hoặc PIN sai                   |
-| `0x6983`    | SW_AUTHENTICATION_METHOD_BLOCKED | PIN bị khóa                                      |
-| `0x6985`    | SW_CONDITIONS_NOT_SATISFIED      | Điều kiện không thỏa mãn (VD: PIN chưa khởi tạo) |
-| `0x6984`    | SW_DATA_INVALID                  | Dữ liệu cert/proof/envelope không hợp lệ         |
-| `0x6A86`    | SW_INCORRECT_P1P2                | Tham số P1/P2 không hợp lệ                       |
-| `0x6A83`    | SW_RECORD_NOT_FOUND              | Chưa có device certificate trên card             |
-| `0x6D00`    | SW_INS_NOT_SUPPORTED             | Lệnh không được hỗ trợ                           |
-| `0x6E00`    | SW_CLA_NOT_SUPPORTED             | Class byte không được hỗ trợ                     |
+**Mô tả**: Thẻ ký challenge 32 byte do backend sinh bằng `deviceAuthPrivateKey`.
 
----
+**Command**:
 
-## 5. Workflow sử dụng điển hình
-
-### 4.1. Thiết lập thẻ lần đầu
-
-```
-1. IS_PIN_INITIALIZED    -> Kiểm tra PIN đã khởi tạo chưa
-2. INIT_PIN              -> Khởi tạo PIN (nếu chưa)
-3. VERIFY_PIN            -> Xác thực PIN
-4. GEN_KEY_PAIR          -> Sinh cặp khóa
-5. GET_PUBLIC_KEY        -> Lấy public key để lưu trữ/sử dụng
+```text
+CLA: 0x80
+INS: 0x24
+P1:  0x00
+P2:  0x00
+Lc:  0x20
+Data: [32-byte challenge]
+Le:  0x00
 ```
 
-### 4.2. Ký giao dịch
+**Tham số**:
 
-```
-1. VERIFY_PIN            -> Xác thực PIN
-2. SIGN_HASH             -> Ký hash của transaction
-```
+- `Data`: challenge 32 byte từ backend
 
-### 4.3. Đổi PIN
+**Ví dụ**:
 
-```
-1. VERIFY_PIN            -> Xác thực PIN cũ
-2. UPDATE_PIN            -> Cập nhật PIN mới
+```text
+Command: 80 24 00 00 20 [32 bytes challenge] 00
 ```
 
-### 4.4. Reset thẻ
+**Response**:
 
-```
-1. RESET_PIN             -> Xóa PIN
-2. INIT_PIN              -> Khởi tạo PIN mới
-3. VERIFY_PIN            -> Xác thực PIN
-4. GEN_KEY_PAIR          -> Sinh cặp khóa mới
-```
-
-### 4.5. Backup source -> destination
-
-```
-1. (Destination) GET_DEVICE_CERT or GET_FACTORY_CSR + SET_DEVICE_CERT
-2. (Destination) START_LINK_PROOF -> lấy dest link proof
-3. (Source) GET_DEVICE_CERT or GET_FACTORY_CSR + SET_DEVICE_CERT
-4. (Source) START_LINK_PROOF
-5. (Source) LOAD_PEER_CERT(dest cert)
-6. (Source) LOAD_PEER_LINK_PROOF(dest proof)
-7. (Source) VERIFY_PIN
-8. (Source) BACKUP_EXPORT -> backup envelope
-9. (Destination) LOAD_PEER_CERT(source cert)
-10. (Destination) LOAD_PEER_LINK_PROOF(source proof)
-11. (Destination) VERIFY_PIN
-12. (Destination) BACKUP_IMPORT(envelope)
-```
-
----
-
-## 6. Lưu ý bảo mật
-
-1. **PIN Security**:
-   - PIN chỉ có thể nhập sai tối đa 3 lần (Configuration.PIN_TRY_LIMIT)
-   - Sau 3 lần sai, thẻ sẽ bị khóa (SW_AUTHENTICATION_METHOD_BLOCKED)
-   - Cần RESET_PIN để mở khóa
-   - UPDATE_PIN yêu cầu xác thực PIN hiện tại trước khi đổi
-   - RESET_PIN yêu cầu đã xác thực PIN trước đó
-
-2. **Key Protection**:
-   - Private key không bao giờ được xuất ra ngoài thẻ
-   - Mọi thao tác với private key đều yêu cầu xác thực PIN
-   - Public key chỉ có thể đọc sau khi xác thực PIN
-
-3. **Session Management**:
-   - Xác thực PIN có hiệu lực trong phiên làm việc hiện tại
-   - Sau khi ngắt kết nối hoặc select applet khác, cần xác thực lại PIN
-
-4. **Transaction Malleability Protection**:
-   - Signature được Low-S normalized (s <= n/2) trước khi trả về
-   - Ngăn chặn việc tạo nhiều signature hợp lệ từ cùng một transaction
-
-5. **Backup Security (ECDH + Certificate chain)**:
-   - Backup key chỉ được dẫn xuất sau khi verify peer cert + peer link proof
-   - Dữ liệu backup được AES-CBC mã hóa với session key từ ECDH
-   - Envelope được ký bởi source device auth key để đảm bảo integrity
-   - Device cert phải được ký bởi Chainora factory root public key nhúng sẵn trong applet
-
----
-
-## 7. Hỗ trợ
-
-Nếu có vấn đề khi tích hợp, vui lòng liên hệ team applet hoặc tạo issue trên repository.
-
-## Backend Card Attestation API
-
-- API mới cho backend verify dùng `INS_DEVICE_CERT (0x23)` và `INS_CARD_ATTEST (0x24)`.
-- `0x23 / P1=0x00` -> `GET_DEVICE_CERT`
-- `0x23 / P1=0x10` -> `GET_FACTORY_CSR`
-- `0x23 / P1=0x11` -> `SET_DEVICE_CERT`
-- `0x24` nhận `challenge[32]`, trả về:
+- Data format:
 
 ```text
 [version:1][deviceId:16][challenge:32][sigLen:1][sigDer:sigLen]
 ```
 
-- Chữ ký proof được tạo bởi `deviceAuthPrivateKey` và backend verify bằng `deviceAuthPublicKey` lấy từ certificate.
-- Các sub-command cert/factory không còn nằm dưới `INS 0x30`.
-- Host phải cập nhật:
-  - `GET_DEVICE_CERT`: từ `0x30 / P1=0x00` sang `0x23 / P1=0x00`
-  - `GET_FACTORY_CSR`: từ `0x30 / P1=0x10` sang `0x23 / P1=0x10`
-  - `SET_DEVICE_CERT`: từ `0x30 / P1=0x11` sang `0x23 / P1=0x11`
-- Phần backup thuần vẫn giữ nguyên:
-  - `START_LINK_PROOF`, `LOAD_PEER_CERT`, `LOAD_PEER_LINK_PROOF`, `CLEAR_LINK_STATE`, `BACKUP_EXPORT`, `BACKUP_IMPORT`
+- `version`: hiện tại = `0x01`
+- `deviceId`: định danh 16 byte của thẻ
+- `challenge`: echo lại đúng challenge đã gửi vào
+- `sigLen`: độ dài chữ ký DER
+- `sigDer`: chữ ký ECDSA SHA-256 trên `[version][deviceId][challenge]`
+- Status: `0x9000`
+
+**Response codes**:
+
+- `0x9000`: thành công
+- `0x6700`: challenge không đúng 32 byte
+- `0x6A83`: chưa có device certificate
+- `0x6984`: lỗi dữ liệu nội bộ hoặc signature không hợp lệ
+- `0x6A86`: P1/P2 không hợp lệ
+
+---
+
+## 4. Backup Key Bằng Mutual Authentication + ECDH
+
+### 4.1. START_LINK_PROOF - Tạo link proof
+
+**Mô tả**: Tạo ephemeral link keypair + nonce cho session backup, sau đó ký link proof bằng `deviceAuthPrivateKey`.
+
+**Command**:
+
+```text
+CLA: 0x80
+INS: 0x30
+P1:  0x01
+P2:  0x00
+Lc:  0x00
+Le:  0x00
+```
+
+**Tham số**: Không có
+
+**Ví dụ**:
+
+```text
+Command: 80 30 01 00 00 00
+```
+
+**Response**:
+
+- Data format:
+
+```text
+[version:1][sessionId:2][counter:2][deviceId:16][linkPublicKey:65][nonce:16][sigLen:1][sigDer:sigLen]
+```
+
+- `version`: hiện tại = `0x02`
+- `sessionId`: định danh 2 byte của session backup
+- `counter`: hiện tại = `0x0001`
+- `deviceId`: định danh 16 byte của thẻ
+- `linkPublicKey`: public key ephemeral secp256k1 uncompressed
+- `nonce`: nonce 16 byte của session
+- `sigDer`: chữ ký trên toàn bộ body link proof
+- Status: `0x9000`
+
+**Response codes**:
+
+- `0x9000`: thành công
+- `0x6985`: chưa có device certificate
+- `0x6984`: public key hoặc signature nội bộ không hợp lệ
+- `0x6A86`: P1/P2 không hợp lệ
+
+---
+
+### 4.2. LOAD_PEER_CERT - Nạp certificate của peer
+
+**Mô tả**: Nạp device certificate của card đối tác để chuẩn bị mutual authentication.
+
+**Command**:
+
+```text
+CLA: 0x80
+INS: 0x30
+P1:  0x02
+P2:  0x00
+Lc:  [độ dài peer certificate]
+Data: [peer certificate]
+```
+
+**Tham số**:
+
+- `Data`: raw certificate lấy từ `GET_DEVICE_CERT`
+
+**Ví dụ**:
+
+```text
+Command: 80 30 02 00 [Lc] [peer certificate bytes]
+```
+
+**Response**:
+
+- Không có data
+- Status: `0x9000`
+
+**Response codes**:
+
+- `0x9000`: thành công
+- `0x6984`: certificate sai format hoặc capability không hợp lệ
+- `0x6982`: chữ ký certificate không hợp lệ
+- `0x6A86`: P1/P2 không hợp lệ
+
+---
+
+### 4.3. LOAD_PEER_LINK_PROOF - Nạp link proof của peer
+
+**Mô tả**: Nạp link proof của peer, verify `deviceId`, `counter`, public key ephemeral và chữ ký.
+
+**Command**:
+
+```text
+CLA: 0x80
+INS: 0x30
+P1:  0x03
+P2:  0x00
+Lc:  [độ dài peer link proof]
+Data: [peer link proof]
+```
+
+**Tham số**:
+
+- `Data`: payload lấy từ `START_LINK_PROOF`
+- Chỉ chấp nhận `version = 0x02` và `counter = 0x0001`
+- Sau 3 lần lỗi `length/data/security` trong cùng session, command sẽ bị lock cho đến khi reset state
+
+**Ví dụ**:
+
+```text
+Command: 80 30 03 00 [Lc] [peer link proof bytes]
+```
+
+**Response**:
+
+- Không có data
+- Status: `0x9000`
+
+**Response codes**:
+
+- `0x9000`: thành công
+- `0x6985`: thiếu local link proof, thiếu peer cert, proof đã load rồi, hoặc command bị lock
+- `0x6982`: `deviceId`, counter, hoặc chữ ký peer proof không hợp lệ
+- `0x6984`: version, `sigLen`, hoặc nội dung proof không hợp lệ
+- `0x6700`: độ dài peer proof không hợp lệ
+- `0x6A86`: P1/P2 không hợp lệ
+
+---
+
+### 4.4. CLEAR_LINK_STATE - Xóa backup session state
+
+**Mô tả**: Xóa local/peer backup state để bắt đầu lại flow backup.
+
+**Command**:
+
+```text
+CLA: 0x80
+INS: 0x30
+P1:  0x04
+P2:  0x00
+Lc:  0x00
+```
+
+**Tham số**: Không có
+
+**Ví dụ**:
+
+```text
+Command: 80 30 04 00 00
+```
+
+**Response**:
+
+- Không có data
+- Status: `0x9000`
+
+**Response codes**:
+
+- `0x9000`: thành công
+- `0x6A86`: P1/P2 không hợp lệ
+
+---
+
+### 4.5. BACKUP_EXPORT - Xuất backup envelope
+
+**Mô tả**: Card nguồn mã hóa wallet key material bằng session key từ ECDH và trả về backup envelope đã ký.
+
+**Command**:
+
+```text
+CLA: 0x80
+INS: 0x31
+P1:  0x00
+P2:  0x00
+Lc:  0x00
+Le:  0x00
+```
+
+**Tham số**: Không có
+
+**Ví dụ**:
+
+```text
+Command: 80 31 00 00 00 00
+```
+
+**Response**:
+
+- Data format:
+
+```text
+[version:1][sessionId:2][counter:2][sourceDeviceId:16][destDeviceId:16][iv:16][cipherLen:1][cipher:cipherLen][sigLen:1][sigDer:sigLen]
+```
+
+- `version`: hiện tại = `0x02`
+- `counter`: hiện tại = `0x0002`
+- `iv`: AES-CBC IV 16 byte
+- `cipher`: payload backup đã pad và mã hóa
+- `sigDer`: chữ ký của source device auth key trên phần body envelope
+- Status: `0x9000`
+
+**Response codes**:
+
+- `0x9000`: thành công
+- `0x6985`: chưa đủ precondition, chưa verify PIN, chưa có wallet key, hoặc chưa hoàn tất mutual auth
+- `0x6982`: chưa xác thực PIN hoặc security check của session backup không đạt
+- `0x6984`: dữ liệu mã hóa hoặc signature nội bộ không hợp lệ
+- `0x6A86`: P1/P2 không hợp lệ
+
+---
+
+### 4.6. BACKUP_IMPORT - Nhập backup envelope
+
+**Mô tả**: Card đích verify envelope, giải mã payload bằng session key tương ứng và import wallet key material.
+
+**Command**:
+
+```text
+CLA: 0x80
+INS: 0x32
+P1:  0x00
+P2:  0x00
+Lc:  [độ dài backup envelope]
+Data: [backup envelope]
+```
+
+**Tham số**:
+
+- `Data`: envelope lấy từ `BACKUP_EXPORT`
+- Chỉ chấp nhận `version = 0x02`, `counter = 0x0002`, và `sessionId` khớp session hiện tại
+- Sau 3 lần lỗi `length/data/security` trong cùng session, command sẽ bị lock cho đến khi reset state
+
+**Ví dụ**:
+
+```text
+Command: 80 32 00 00 [Lc] [backup envelope bytes]
+```
+
+**Response**:
+
+- Không có data
+- Status: `0x9000`
+
+**Response codes**:
+
+- `0x9000`: thành công
+- `0x6985`: chưa đủ precondition, command bị lock, hoặc card đích đang có wallet key khác
+- `0x6982`: chưa xác thực PIN, hoặc `sessionId`, `deviceId`, counter, chữ ký envelope không hợp lệ
+- `0x6984`: envelope, payload, padding, hoặc dữ liệu key không hợp lệ
+- `0x6700`: độ dài envelope / ciphertext không hợp lệ
+- `0x6A86`: P1/P2 không hợp lệ
+
+---
+
+## 5. Mã Response Phổ Biến
+
+| Status Code | Constant                         | Ý nghĩa |
+| ----------- | -------------------------------- | ------- |
+| `0x9000`    | SW_NO_ERROR                      | Thành công |
+| `0x6700`    | SW_WRONG_LENGTH                  | Độ dài input không đúng |
+| `0x6982`    | SW_SECURITY_STATUS_NOT_SATISFIED | Chưa xác thực PIN hoặc security check không đạt |
+| `0x6983`    | SW_AUTHENTICATION_METHOD_BLOCKED | PIN bị khóa |
+| `0x6984`    | SW_DATA_INVALID                  | Dữ liệu input không hợp lệ |
+| `0x6985`    | SW_CONDITIONS_NOT_SATISFIED      | Điều kiện tiên quyết chưa đạt |
+| `0x6A83`    | SW_RECORD_NOT_FOUND              | Chưa có device certificate |
+| `0x6A86`    | SW_INCORRECT_P1P2                | P1/P2 không hợp lệ |
+| `0x6D00`    | SW_INS_NOT_SUPPORTED             | INS không được hỗ trợ |
+| `0x6E00`    | SW_CLA_NOT_SUPPORTED             | CLA không được hỗ trợ |
+
+---
+
+## 6. Workflow Sử Dụng Điển Hình
+
+### 6.1. Thiết lập thẻ lần đầu
+
+```text
+1. IS_PIN_INITIALIZED
+2. INIT_PIN
+3. VERIFY_PIN
+4. GEN_KEY_PAIR
+5. GET_PUBLIC_KEY
+```
+
+### 6.2. Provision device certificate
+
+```text
+1. GET_FACTORY_CSR
+2. Factory ký CSR off-card
+3. SET_DEVICE_CERT
+4. GET_DEVICE_CERT
+```
+
+### 6.3. Backend verify card
+
+```text
+1. GET_DEVICE_CERT
+2. Backend verify certificate bằng factory root public key
+3. Backend sinh challenge 32 byte
+4. CARD_ATTEST
+5. Backend verify proof bằng deviceAuthPublicKey trong certificate
+```
+
+### 6.4. Ký giao dịch
+
+```text
+1. VERIFY_PIN
+2. SIGN_HASH
+```
+
+### 6.5. Đổi PIN
+
+```text
+1. VERIFY_PIN
+2. UPDATE_PIN
+```
+
+### 6.6. Reset thẻ
+
+```text
+1. RESET_PIN
+2. INIT_PIN
+3. VERIFY_PIN
+4. GEN_KEY_PAIR
+```
+
+### 6.7. Backup source -> destination
+
+```text
+1. (Destination) GET_DEVICE_CERT
+2. (Destination) START_LINK_PROOF
+3. (Source) GET_DEVICE_CERT
+4. (Source) START_LINK_PROOF
+5. (Source) LOAD_PEER_CERT(dest cert)
+6. (Source) LOAD_PEER_LINK_PROOF(dest proof)
+7. (Source) VERIFY_PIN
+8. (Source) BACKUP_EXPORT
+9. (Destination) LOAD_PEER_CERT(source cert)
+10. (Destination) LOAD_PEER_LINK_PROOF(source proof)
+11. (Destination) VERIFY_PIN
+12. (Destination) BACKUP_IMPORT
+```
+
+---
+
+## 7. Lưu Ý Bảo Mật
+
+1. **PIN Security**
+   - PIN chỉ có thể nhập sai tối đa 3 lần.
+   - Sau khi bị khóa, cần reset / reprovision theo flow phù hợp.
+
+2. **Wallet Key Protection**
+   - Wallet private key không bao giờ được export thô qua APDU.
+   - `SIGN_HASH` yêu cầu verify PIN trước.
+
+3. **Device Identity**
+   - `deviceAuthPrivateKey` tách riêng khỏi wallet private key.
+   - `CARD_ATTEST` chỉ chứng minh genuine card + possession của `deviceAuthPrivateKey`.
+   - `CARD_ATTEST` không chứng minh user đã nhập PIN.
+
+4. **Certificate Trust Model**
+   - Device certificate phải được ký bởi Chainora factory root key hardcoded trong applet.
+   - Host đã bỏ hoàn toàn path cũ qua `INS 0x30` cho cert/factory. Các lệnh `GET_DEVICE_CERT`, `GET_FACTORY_CSR`, `SET_DEVICE_CERT` chỉ còn ở `INS 0x23`.
+
+5. **Backup Security**
+   - Backup chỉ hoàn tất sau khi verify peer cert và peer link proof.
+   - Backup payload được AES-CBC encrypt bằng session key dẫn xuất từ ECDH.
+   - Envelope được ký để đảm bảo integrity.
+
+6. **Replay / Abuse Guard**
+   - `CARD_ATTEST` nên dùng challenge one-time, TTL ngắn, do backend quản lý.
+   - `LOAD_PEER_LINK_PROOF` và `BACKUP_IMPORT` có cơ chế lock sau 3 lần sai trong cùng session.
+
+---
+
+## 8. Hỗ Trợ
+
+Nếu có vấn đề khi tích hợp, vui lòng liên hệ team applet hoặc tạo issue trên repository.
 
 **Repository**: https://github.com/Chainora/chainora-applet

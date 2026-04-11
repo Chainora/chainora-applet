@@ -417,19 +417,16 @@ public class AppletTest extends BaseTest {
     }
 
     /**
-     * Test that GET_FACTORY_CSR returns expected format.
+     * Test that legacy factory CSR access via BACKUP_SESSION is no longer supported.
      */
     @Test
-    public void backupGetFactoryCsr_ReturnsExpectedFormat() throws Exception {
+    public void backupGetFactoryCsr_LegacyPath_ReturnsIncorrectP1P2() throws Exception {
         final CardManager cardManager = connect();
 
         final CommandAPDU csrCmd = new CommandAPDU(APPLET_CLA, 0x30, 0x10, 0x00);
         final ResponseAPDU csrResponse = cardManager.transmit(csrCmd);
         Assert.assertNotNull(csrResponse);
-        Assert.assertEquals(ISO7816.SW_NO_ERROR, (short) csrResponse.getSW());
-        Assert.assertEquals(82, csrResponse.getData().length);
-        Assert.assertEquals(DEVICE_CERT_VERSION, csrResponse.getData()[0]);
-        Assert.assertEquals(0x04, csrResponse.getData()[17]);
+        Assert.assertEquals(ISO7816.SW_INCORRECT_P1P2, (short) csrResponse.getSW());
     }
 
     /**

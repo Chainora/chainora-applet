@@ -3,6 +3,7 @@ package com.chainora.wallet;
 import javacard.framework.APDU;
 import javacard.framework.ISO7816;
 import javacard.framework.ISOException;
+import javacard.framework.JCSystem;
 import javacard.framework.Util;
 
 /**
@@ -14,9 +15,13 @@ final class CardAttestationCommandHandler implements CommandHandler {
     private static final short SW_DATA_INVALID = ISO7816.SW_DATA_INVALID;
 
     private final DeviceIdentityManager deviceIdentityManager;
+    private final byte[] challengeScratch;
 
     CardAttestationCommandHandler(DeviceIdentityManager deviceIdentityManager) {
         this.deviceIdentityManager = deviceIdentityManager;
+        this.challengeScratch = JCSystem.makeTransientByteArray(
+                Configuration.CARD_CHALLENGE_LENGTH,
+                JCSystem.CLEAR_ON_DESELECT);
     }
 
     @Override
@@ -36,11 +41,13 @@ final class CardAttestationCommandHandler implements CommandHandler {
         ApduUtils.validateExactLength(bytesRead, Configuration.CARD_CHALLENGE_LENGTH);
 
         short challengeOffset = ISO7816.OFFSET_CDATA;
+        Util.arrayCopyNonAtomic(buffer, challengeOffset, challengeScratch, (short) 0, Configuration.CARD_CHALLENGE_LENGTH);
+
         short responseOffset = 0;
         buffer[responseOffset++] = Configuration.CARD_ATTEST_FORMAT_VERSION;
         deviceIdentityManager.copyDeviceId(buffer, responseOffset);
         responseOffset += Configuration.DEVICE_ID_LENGTH;
-        Util.arrayCopyNonAtomic(buffer, challengeOffset, buffer, responseOffset, Configuration.CARD_CHALLENGE_LENGTH);
+        Util.arrayCopyNonAtomic(challengeScratch, (short) 0, buffer, responseOffset, Configuration.CARD_CHALLENGE_LENGTH);
         responseOffset += Configuration.CARD_CHALLENGE_LENGTH;
 
         short bodyLength = responseOffset;
