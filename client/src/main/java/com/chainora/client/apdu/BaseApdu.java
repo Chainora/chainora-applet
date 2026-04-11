@@ -82,20 +82,4 @@ public abstract class BaseApdu {
         return response.getData();
     }
 
-    /**
-     * Helper method to convert byte array to hex string.
-     *
-     * @param data the bytes to convert
-     * @return hex string representation
-     */
-    protected static String toHex(byte[] data) {
-        if (data == null) {
-            return "null";
-        }
-        StringBuilder sb = new StringBuilder(data.length * 2);
-        for (byte b : data) {
-            sb.append(String.format("%02X", b));
-        }
-        return sb.toString();
-    }
 }
